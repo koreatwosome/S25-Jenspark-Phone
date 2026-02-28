@@ -804,8 +804,10 @@ input:checked + .slider::before { transform: translateX(21px); }
   background: var(--card-bg);
   border: 1.5px solid var(--card-border);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 24px 28px;
   box-shadow: var(--shadow);
+  width: 100%;           /* 부모 너비 100% 채우기 */
+  box-sizing: border-box;
 }
 .dex-card h3 {
   font-size: 1rem; font-weight: 700; color: var(--text);
@@ -824,17 +826,38 @@ input:checked + .slider::before { transform: translateX(21px); }
 .dex-rate-info strong { color: var(--accent); font-size: 1rem; font-weight: 800; }
 .dex-date { color: var(--text3); font-size: 0.76rem; }
 
-.dex-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+/* 테이블 가로 스크롤 래퍼 */
+.dex-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 8px;
+}
+.dex-table {
+  width: 100%;
+  min-width: 680px;          /* 6컬럼 최소 폭 보장 */
+  border-collapse: collapse;
+  font-size: 0.83rem;
+  table-layout: auto;
+}
 .dex-table thead tr { background: var(--bg3); border-bottom: 2px solid var(--card-border); }
 .dex-table th {
-  padding: 10px 14px; text-align: left;
+  padding: 10px 16px; text-align: left;
   color: var(--text2); font-weight: 700; font-size: 0.76rem; white-space: nowrap;
 }
 .dex-table td {
-  padding: 10px 14px;
+  padding: 11px 16px;
   border-bottom: 1px solid var(--bg3);
   color: var(--text2);
+  white-space: nowrap;
 }
+/* 각 컬럼 최소 너비 */
+.dex-table th:nth-child(1), .dex-table td:nth-child(1) { min-width: 180px; } /* 제품명 */
+.dex-table th:nth-child(2), .dex-table td:nth-child(2) { min-width: 120px; } /* 용량/스펙 */
+.dex-table th:nth-child(3), .dex-table td:nth-child(3) { min-width: 100px; } /* USD */
+.dex-table th:nth-child(4), .dex-table td:nth-child(4) { min-width: 120px; } /* KRW */
+.dex-table th:nth-child(5), .dex-table td:nth-child(5) { min-width: 100px; } /* 전일 대비 */
+.dex-table th:nth-child(6), .dex-table td:nth-child(6) { min-width: 120px; } /* 트렌드 */
 .dex-table tbody tr:hover td { background: var(--bg3); }
 .dex-table .td-price { color: var(--text); font-weight: 700; }
 .dex-table .td-krw  { color: var(--accent); font-weight: 800; }
@@ -1090,7 +1113,10 @@ select option { background: var(--card-bg); color: var(--text); }
   .modal-rate { font-size: 3rem; }
 
   /* ── D램 테이블 ── */
-  .dex-table th, .dex-table td { padding: 8px 10px; font-size: 0.76rem; }
+  .dex-table { min-width: 600px; }
+  .dex-table th, .dex-table td { padding: 8px 10px; font-size: 0.74rem; }
+  .dex-table th:nth-child(1), .dex-table td:nth-child(1) { min-width: 140px; }
+  .dex-table th:nth-child(6), .dex-table td:nth-child(6) { min-width: 90px; }
 }
 
 /* 극소형 (320px 이하) */
