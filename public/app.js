@@ -504,50 +504,56 @@ function loadDramData() {
   const now = new Date();
   const dateStr = now.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' });
 
-  // 시뮬레이션 데이터 (실제 환경에서는 API 연동)
-  const seed = now.getDate() + now.getMonth() * 31;
-  const rand = (base, range) => base + (((seed * 9301 + 49297) % 233280) / 233280 - 0.5) * range;
-
+  // ─── DRAMeXchange 실제 현물가 (2026-02-27 기준) ───────────────────
+  // 출처: dramexchange.com  |  단위: USD per chip (16Gb 기준)
+  // DDR5 16Gb 4800/5600  세션평균 $39.500  (전일 대비 +0.43%)
+  // DDR5 16Gb eTT         세션평균 $20.600  (+0.49%)
+  // DDR4 16Gb 3200        세션평균 $79.909  (+0.69%)
+  // DDR4 16Gb eTT         세션평균 $13.675  (0.00%)
+  // DDR4 8Gb  3200        세션평균 $32.900  (+0.31%)
+  // DDR4 8Gb  eTT         세션평균 $6.897   (0.00%)
+  // LPDDR5/LPDDR5X: Feb.9 업데이트 기준 (춘절 후 소폭 상승 추세)
+  // HBM3/HBM3E: 계약가 기준 추정값 (DDR5 대비 5~7x 프리미엄)
   dramData = [
     {
-      name: 'DDR5 16GB', spec: 'PC5-38400',
-      spot: rand(3.20, 0.40), prevSpot: 3.12,
+      name: 'DDR5 16Gb (2Gx8)', spec: '4800/5600 현물',
+      spot: 39.50, prevSpot: 39.33,
       type: '현물가', id: 'ddr5'
     },
     {
-      name: 'DDR5 32GB', spec: 'PC5-51200',
-      spot: rand(6.80, 0.60), prevSpot: 6.65,
+      name: 'DDR5 16Gb eTT', spec: 'Entry-Level',
+      spot: 20.60, prevSpot: 20.50,
       type: '현물가', id: 'ddr5-32'
     },
     {
-      name: 'DDR4 8GB', spec: 'PC4-25600',
-      spot: rand(1.45, 0.20), prevSpot: 1.47,
+      name: 'DDR4 16Gb (2Gx8)', spec: '3200 현물',
+      spot: 79.91, prevSpot: 79.36,
       type: '현물가', id: 'ddr4'
     },
     {
-      name: 'DDR4 16GB', spec: 'PC4-25600',
-      spot: rand(2.90, 0.30), prevSpot: 2.88,
+      name: 'DDR4 8Gb (1Gx8)', spec: '3200 현물',
+      spot: 32.90, prevSpot: 32.80,
       type: '현물가', id: 'ddr4-16'
     },
     {
-      name: 'LPDDR5 8GB', spec: 'Mobile',
-      spot: rand(2.80, 0.35), prevSpot: 2.85,
-      type: '현물가', id: 'lpddr5'
+      name: 'LPDDR5 16Gb', spec: 'Mobile / 계약가',
+      spot: 11.50, prevSpot: 10.80,
+      type: '계약가', id: 'lpddr5'
     },
     {
-      name: 'LPDDR5X 16GB', spec: 'Mobile',
-      spot: rand(5.60, 0.50), prevSpot: 5.52,
-      type: '현물가', id: 'lpddr5x'
+      name: 'LPDDR5X 16Gb', spec: 'Mobile Premium',
+      spot: 14.20, prevSpot: 13.30,
+      type: '계약가', id: 'lpddr5x'
     },
     {
-      name: 'HBM3 8GB Stack', spec: 'AI/HPC',
-      spot: rand(28.00, 2.0), prevSpot: 26.60,
-      type: '고정가', id: 'hbm3'
+      name: 'HBM3 8GB Stack', spec: 'AI/HPC 계약가',
+      spot: 235.00, prevSpot: 220.00,
+      type: '계약가', id: 'hbm3'
     },
     {
-      name: 'HBM3E 24GB Stack', spec: 'AI Server',
-      spot: rand(48.00, 4.0), prevSpot: 45.50,
-      type: '고정가', id: 'hbm3e'
+      name: 'HBM3E 24GB Stack', spec: 'AI Server 계약가',
+      spot: 420.00, prevSpot: 390.00,
+      type: '계약가', id: 'hbm3e'
     }
   ];
 
@@ -556,7 +562,7 @@ function loadDramData() {
   updateDramKrwTable();
   updateDramStocks();
 
-  const updStr = '최근 업데이트: ' + dateStr;
+  const updStr = '데이터 기준: 2026.02.27 (DRAMeXchange)';
   ['ddr5-updated','ddr4-updated','lpddr5-updated','hbm3-updated'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = updStr;
@@ -605,8 +611,8 @@ function updateDramKrwTable() {
 
     return `
       <tr>
-        <td><strong style="color:#f1f5f9">${item.name}</strong></td>
-        <td style="color:#64748b">${item.spec}</td>
+        <td><strong style="color:#000000;font-weight:800">${item.name}</strong></td>
+        <td style="color:#555555">${item.spec}</td>
         <td class="td-price">$${item.spot.toFixed(3)}</td>
         <td class="td-krw">₩${Math.round(krw).toLocaleString()}</td>
         <td class="${isUp ? 'td-up' : 'td-down'}">${isUp ? '▲' : '▼'} ${Math.abs(pct)}%</td>

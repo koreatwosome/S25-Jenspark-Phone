@@ -872,7 +872,7 @@ input:checked + .slider::before { transform: translateX(21px); }
   transition: all 0.2s;
 }
 .dstock-item:hover { border-color: var(--primary-light); box-shadow: var(--shadow); }
-.dstock-name  { font-size: 0.88rem; font-weight: 800; color: var(--text); margin-bottom: 2px; }
+.dstock-name  { font-size: 0.88rem; font-weight: 800; color: #000000; margin-bottom: 2px; }
 .dstock-code  { font-size: 0.68rem; color: var(--text3); margin-bottom: 10px; font-weight: 600; }
 .dstock-price { font-size: 1.3rem; font-weight: 900; color: var(--text); margin-bottom: 4px; }
 .dstock-change { font-size: 0.78rem; font-weight: 700; }
