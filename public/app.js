@@ -620,29 +620,59 @@ function getTrendBar(pct) {
 }
 
 function updateDramStocks() {
-  const seed = new Date().getDate() * 7;
+  // ✅ 2026년 2월 27일(금) 실제 종가 기준 (2/28은 토요일 — 장 없음)
+  // 출처: Yahoo Finance, Investing.com, 토스증권, 알파스퀘어
   const stocks = [
-    { priceId: 'stock-samsung', changeId: 'change-samsung',
-      basePrice: 78400, change: (seed % 7) - 3 },
-    { priceId: 'stock-skhynix', changeId: 'change-skhynix',
-      basePrice: 198500, change: (seed % 9) - 4 },
-    { priceId: 'stock-micron', changeId: 'change-micron',
-      basePrice: 124.85, change: ((seed % 11) - 5) * 0.1, isUsd: true },
-    { priceId: 'stock-nvda', changeId: 'change-nvda',
-      basePrice: 892.45, change: ((seed % 13) - 6) * 0.15, isUsd: true }
+    {
+      priceId: 'stock-samsung',
+      changeId: 'change-samsung',
+      price: 216500,          // 2/27 종가 (₩)
+      prev:  218000,          // 2/26 종가 (₩)
+      isUsd: false
+    },
+    {
+      priceId: 'stock-skhynix',
+      changeId: 'change-skhynix',
+      price: 1061000,         // 2/27 종가 (₩)
+      prev:  1099000,         // 2/26 종가 (₩)
+      isUsd: false
+    },
+    {
+      priceId: 'stock-micron',
+      changeId: 'change-micron',
+      price: 412.37,          // 2/27(금) 종가 ($)
+      prev:  415.56,          // 2/26(목) 종가 ($)
+      isUsd: true
+    },
+    {
+      priceId: 'stock-nvda',
+      changeId: 'change-nvda',
+      price: 177.19,          // 2/27(금) 종가 ($)
+      prev:  184.89,          // 2/26(목) 종가 ($)
+      isUsd: true
+    }
   ];
 
   stocks.forEach(s => {
     const pEl = document.getElementById(s.priceId);
     const cEl = document.getElementById(s.changeId);
+    const diff = s.price - s.prev;
+    const pct  = ((diff / s.prev) * 100).toFixed(2);
+    const isUp = diff >= 0;
+
     if (pEl) {
-      if (s.isUsd) pEl.textContent = '$' + (s.basePrice + s.change).toFixed(2);
-      else pEl.textContent = '₩' + (s.basePrice + s.change * 100).toLocaleString();
+      pEl.textContent = s.isUsd
+        ? '$' + s.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : '₩' + s.price.toLocaleString('ko-KR');
     }
     if (cEl) {
-      const pct = (s.change / s.basePrice * 100).toFixed(2);
-      cEl.textContent = (s.change >= 0 ? '▲ +' : '▼ ') + pct + '%';
-      cEl.className = 'dstock-change ' + (s.change >= 0 ? 'up' : 'down');
+      const sign = isUp ? '▲ +' : '▼ ';
+      const absPct = Math.abs(pct);
+      const absDiff = s.isUsd
+        ? '$' + Math.abs(diff).toFixed(2)
+        : '₩' + Math.abs(diff).toLocaleString('ko-KR');
+      cEl.textContent = sign + absPct + '% (' + absDiff + ')';
+      cEl.className = 'dstock-change ' + (isUp ? 'up' : 'down');
     }
   });
 }
