@@ -168,14 +168,15 @@ function updateWinRate() {
   const rate = count * 10; // 항목당 10%이나 최대 100%로 고정
   const clampedRate = Math.min(rate, 100);
 
-  // 원형 진행률
+  // 원형 진행률 — 라이트 테마 색상
   const circle = document.getElementById('win-rate-display');
   if (circle) {
     let color;
-    if (clampedRate >= 70) color = '#10b981';
-    else if (clampedRate >= 40) color = '#f59e0b';
-    else color = '#3b82f6';
-    circle.style.background = `conic-gradient(${color} ${clampedRate}%, #334155 ${clampedRate}%)`;
+    if (clampedRate >= 70) color = '#16a34a';   // 초록
+    else if (clampedRate >= 40) color = '#d97706'; // 앰버
+    else color = '#ea580c';                        // 오렌지
+    const trackColor = '#fde8d4'; // 살색 트랙
+    circle.style.background = `conic-gradient(${color} ${clampedRate}%, ${trackColor} ${clampedRate}%)`;
   }
 
   const rateNum = document.getElementById('rate-number');
@@ -184,11 +185,14 @@ function updateWinRate() {
   // 체크 수 및 텍스트
   const checkedCount = document.getElementById('checked-count');
   if (checkedCount) checkedCount.textContent = count;
+  // 하단 바의 체크 카운트도 동기화
+  const checkedCountBottom = document.getElementById('checked-count-bottom');
+  if (checkedCountBottom) checkedCountBottom.textContent = count;
 
   const rateText = document.getElementById('rate-text');
   if (rateText) rateText.textContent = clampedRate + '%';
 
-  // 진행바
+  // 배너 진행바
   const progressBar = document.getElementById('progress-bar');
   if (progressBar) progressBar.style.width = clampedRate + '%';
 
@@ -210,12 +214,12 @@ function updateGrade(rate) {
   const gradeEl = document.getElementById('rate-grade');
   if (!gradeEl) return;
   let icon, text, color;
-  if (rate >= 90)      { icon = '🚀'; text = '최상 - 적극 매수'; color = '#22c55e'; }
-  else if (rate >= 70) { icon = '✅'; text = '양호 - 매수 고려'; color = '#10b981'; }
-  else if (rate >= 50) { icon = '👀'; text = '중립 - 관망 권장'; color = '#f59e0b'; }
-  else if (rate >= 30) { icon = '⚠️'; text = '주의 - 신중 접근'; color = '#ef4444'; }
+  if (rate >= 90)      { icon = '🚀'; text = '최상 - 적극 매수'; color = '#15803d'; }
+  else if (rate >= 70) { icon = '✅'; text = '양호 - 매수 고려'; color = '#16a34a'; }
+  else if (rate >= 50) { icon = '👀'; text = '중립 - 관망 권장'; color = '#d97706'; }
+  else if (rate >= 30) { icon = '⚠️'; text = '주의 - 신중 접근'; color = '#ea580c'; }
   else if (rate > 0)   { icon = '🛑'; text = '위험 - 매수 자제'; color = '#dc2626'; }
-  else                 { icon = '🤔'; text = '아직 체크 전';     color = '#64748b'; }
+  else                 { icon = '🤔'; text = '아직 체크 전';     color = '#a07850'; }
 
   gradeEl.innerHTML = `<span class="grade-icon">${icon}</span><span class="grade-text" style="color:${color}">${text}</span>`;
 }
@@ -449,13 +453,13 @@ function renderHistoryChart() {
       datasets: [{
         label: '투자 승률 (%)',
         data: rates,
-        borderColor: '#3b82f6',
-        backgroundColor: 'rgba(59,130,246,0.08)',
+        borderColor: '#d97706',
+        backgroundColor: 'rgba(217,119,6,0.07)',
         borderWidth: 2.5,
         pointRadius: 5,
         pointHoverRadius: 8,
-        pointBackgroundColor: rates.map(r => r >= 70 ? '#10b981' : r >= 40 ? '#f59e0b' : '#ef4444'),
-        pointBorderColor: '#1e293b',
+        pointBackgroundColor: rates.map(r => r >= 70 ? '#16a34a' : r >= 40 ? '#d97706' : '#dc2626'),
+        pointBorderColor: '#ffffff',
         pointBorderWidth: 2,
         fill: true,
         tension: 0.4
@@ -466,11 +470,11 @@ function renderHistoryChart() {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#1e293b',
-          titleColor: '#f1f5f9',
-          bodyColor: '#94a3b8',
-          borderColor: '#334155',
-          borderWidth: 1,
+          backgroundColor: '#ffffff',
+          titleColor: '#1c1209',
+          bodyColor: '#6b4c30',
+          borderColor: '#f0dece',
+          borderWidth: 1.5,
           callbacks: {
             label: ctx => '승률: ' + ctx.parsed.y + '%'
           }
@@ -478,14 +482,14 @@ function renderHistoryChart() {
       },
       scales: {
         x: {
-          grid: { color: 'rgba(51,65,85,0.5)' },
-          ticks: { color: '#64748b', font: { size: 11 } }
+          grid: { color: 'rgba(240,222,206,0.8)' },
+          ticks: { color: '#a07850', font: { size: 11 } }
         },
         y: {
           min: 0, max: 120,
-          grid: { color: 'rgba(51,65,85,0.5)' },
+          grid: { color: 'rgba(240,222,206,0.8)' },
           ticks: {
-            color: '#64748b',
+            color: '#a07850',
             font: { size: 11 },
             callback: v => v + '%'
           }

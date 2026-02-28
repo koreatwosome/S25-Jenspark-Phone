@@ -31,17 +31,36 @@
 
   <!-- ===== 메인 체크리스트 페이지 ===== -->
   <div id="page-checklist" class="page active">
-    <div class="page-header">
+
+    <!-- 페이지 타이틀 -->
+    <div class="page-header" style="margin-bottom:16px">
       <div class="header-left">
         <h1><i class="fas fa-clipboard-check"></i> 오늘의 투자 승률 체크리스트</h1>
         <p class="header-sub" id="today-date-main"></p>
       </div>
-      <div class="header-right">
-        <div class="win-rate-circle" id="win-rate-display">
-          <div class="circle-inner">
-            <span class="rate-number" id="rate-number">0</span>
-            <span class="rate-percent">%</span>
-            <span class="rate-label">승률</span>
+    </div>
+
+    <!-- ★ 오늘의 투자 승률 배너 (중앙 크게) -->
+    <div class="checklist-win-rate-banner">
+      <div class="banner-title">📊 오늘의 투자 승률</div>
+      <div class="win-rate-circle" id="win-rate-display">
+        <div class="circle-inner">
+          <span class="rate-number" id="rate-number">0</span>
+          <span class="rate-percent">%</span>
+          <span class="rate-label">TODAY</span>
+        </div>
+      </div>
+      <div class="banner-bottom">
+        <div class="banner-progress-wrap">
+          <div class="banner-progress-bar" id="progress-bar" style="width:0%"></div>
+        </div>
+        <div class="banner-info-row">
+          <span class="banner-count">
+            체크 항목: <strong><span id="checked-count">0</span> / 12</strong>
+          </span>
+          <div class="rate-grade" id="rate-grade">
+            <span class="grade-icon">🤔</span>
+            <span class="grade-text">아직 체크 전</span>
           </div>
         </div>
       </div>
@@ -417,26 +436,18 @@
       </div><!-- end checklist-grid -->
 
       <!-- 승률 요약 바 -->
+      <!-- 하단 확정 버튼 바 -->
       <div class="rate-summary-bar">
-        <div class="rsb-left">
+        <div class="rsb-right">
           <div class="rsb-items">
             <span class="rsb-item">
               <i class="fas fa-check-square"></i>
-              <span id="checked-count">0</span> / 12 항목 체크
+              <span id="checked-count-bottom">0</span> / 12 항목 체크됨
             </span>
             <span class="rsb-item">
               <i class="fas fa-percentage"></i>
-              오늘의 투자 승률: <strong id="rate-text">0%</strong>
+              오늘의 승률: <strong id="rate-text">0%</strong>
             </span>
-          </div>
-          <div class="progress-bar-wrap">
-            <div class="progress-bar" id="progress-bar" style="width:0%"></div>
-          </div>
-        </div>
-        <div class="rsb-right">
-          <div class="rate-grade" id="rate-grade">
-            <span class="grade-icon">🤔</span>
-            <span class="grade-text">아직 체크 전</span>
           </div>
           <button class="confirm-btn" onclick="confirmInvestment()">
             <i class="fas fa-stamp"></i>
