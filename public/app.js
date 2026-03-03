@@ -5,8 +5,17 @@
 // ===== 상태 관리 =====
 let investmentHistory = JSON.parse(localStorage.getItem('investmentHistory') || '[]');
 let historyChart = null;
-let currentUsdKrw = 1335.0;
+let currentUsdKrw = 1450.0;
 let dramData = [];
+
+// ===== 시장 데이터 갱신 스케줄러 =====
+let marketRefreshTimer = null;       // 1시간 주기 타이머
+let countdownTimer = null;           // 카운트다운 타이머
+let nextRefreshTime = null;          // 다음 갱신 예정 시각 (Date)
+let lastRefreshTime = null;          // 마지막 갱신 시각 (Date)
+let isRefreshing = false;            // 갱신 중 플래그
+
+const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1시간
 
 // ===== 초기화 =====
 document.addEventListener('DOMContentLoaded', () => {
@@ -17,7 +26,9 @@ document.addEventListener('DOMContentLoaded', () => {
   loadDramData();
   updateWinRate();
   renderHistoryPage();
-  setInterval(() => { loadMarketData(); }, 60000); // 1분마다 갱신
+
+  // 1시간 주기 자동 갱신 스케줄 등록
+  scheduleNextRefresh();
 });
 
 // ===== 페이지 전환 =====
@@ -87,74 +98,235 @@ function initTodayInfo() {
   if (dexDate) dexDate.textContent = '(기준일: ' + getTodayString() + ')';
 }
 
-// ===== 시장 데이터 로드 =====
-async function loadMarketData() {
+// ===== 시장 데이터 로드 (실시간) =====
+async function loadMarketData(showLoading = false) {
+  if (isRefreshing) return;
+  isRefreshing = true;
+
+  if (showLoading) {
+    setMarketCardsLoading(true);
+  }
+
   try {
-    const res = await fetch('/api/market');
+    // force=true 로 강제 갱신 (캐시 무시)
+    const url = showLoading ? '/api/market?force=true' : '/api/market';
+    const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
       updateMarketCards(data);
-      currentUsdKrw = data.usdKrw || 1335.0;
+      currentUsdKrw = data.usdKrw || 1450.0;
       updateDramKrwTable();
+
+      // 갱신 시각 업데이트
+      lastRefreshTime = new Date();
+      updateRefreshStatus(data);
     }
   } catch(e) {
+    console.warn('[Market] 데이터 로드 실패:', e);
     setDefaultMarketData();
+    updateRefreshStatusError();
+  } finally {
+    isRefreshing = false;
+    setMarketCardsLoading(false);
   }
 }
 
+// ===== 1시간 주기 갱신 스케줄러 =====
+function scheduleNextRefresh() {
+  // 기존 타이머 정리
+  if (marketRefreshTimer) clearTimeout(marketRefreshTimer);
+  if (countdownTimer) clearInterval(countdownTimer);
+
+  nextRefreshTime = new Date(Date.now() + REFRESH_INTERVAL_MS);
+
+  // 1시간 후 갱신
+  marketRefreshTimer = setTimeout(async () => {
+    console.log('[Market] 1시간 주기 자동 갱신 실행');
+    await loadMarketData(false);
+    scheduleNextRefresh(); // 재귀 등록
+  }, REFRESH_INTERVAL_MS);
+
+  // 카운트다운 표시 (1초마다 업데이트)
+  countdownTimer = setInterval(updateCountdownDisplay, 1000);
+  updateCountdownDisplay(); // 즉시 한 번 표시
+}
+
+// ===== 카운트다운 표시 업데이트 =====
+function updateCountdownDisplay() {
+  if (!nextRefreshTime) return;
+  const remaining = nextRefreshTime - Date.now();
+  if (remaining <= 0) {
+    updateCountdownEl('갱신 중...');
+    return;
+  }
+  const m = Math.floor(remaining / 60000);
+  const s = Math.floor((remaining % 60000) / 1000);
+  const str = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  updateCountdownEl(str);
+}
+
+function updateCountdownEl(text) {
+  const el = document.getElementById('market-countdown');
+  if (el) el.textContent = text;
+}
+
+// ===== 갱신 상태 UI 업데이트 =====
+function updateRefreshStatus(data) {
+  const timeEl = document.getElementById('market-last-update');
+  const sourceEl = document.getElementById('market-source-badge');
+
+  if (timeEl && lastRefreshTime) {
+    const timeStr = lastRefreshTime.toLocaleTimeString('ko-KR', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false, timeZone: 'Asia/Seoul'
+    });
+    timeEl.textContent = timeStr + ' (KST)';
+  }
+
+  if (sourceEl) {
+    if (data.source === 'live') {
+      sourceEl.textContent = '● 실시간';
+      sourceEl.className = 'source-badge live';
+    } else if (data.source === 'fallback' || data.source === 'error_fallback') {
+      sourceEl.textContent = '○ 기본값';
+      sourceEl.className = 'source-badge fallback';
+    } else {
+      sourceEl.textContent = '● 실시간';
+      sourceEl.className = 'source-badge live';
+    }
+  }
+}
+
+function updateRefreshStatusError() {
+  const sourceEl = document.getElementById('market-source-badge');
+  if (sourceEl) {
+    sourceEl.textContent = '✗ 오류';
+    sourceEl.className = 'source-badge error';
+  }
+}
+
+// ===== 로딩 상태 카드 =====
+function setMarketCardsLoading(isLoading) {
+  const refreshBtn = document.getElementById('market-refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.disabled = isLoading;
+    refreshBtn.innerHTML = isLoading
+      ? '<i class="fas fa-spinner fa-spin"></i>'
+      : '<i class="fas fa-sync-alt"></i>';
+  }
+
+  if (isLoading) {
+    ['usd-krw-value','sp500-value','nasdaq-value','kospi-value'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = '갱신중...';
+    });
+  }
+}
+
+// ===== 수동 갱신 함수 =====
+async function manualRefreshMarket() {
+  if (isRefreshing) return;
+  // 카운트다운 리셋
+  scheduleNextRefresh(); // 타이머 재시작
+  await loadMarketData(true); // 강제 갱신
+  showToast('📡 시장 데이터를 실시간으로 갱신했습니다.');
+}
+
+// ===== 마켓 카드 업데이트 =====
 function updateMarketCards(data) {
   // USD/KRW
   const usdVal = document.getElementById('usd-krw-value');
   const usdChg = document.getElementById('usd-krw-change');
-  if (usdVal) usdVal.textContent = data.usdKrw ? data.usdKrw.toFixed(2) + ' ₩' : '--';
-  if (usdChg && data.usdKrwChange) {
-    const isUp = data.usdKrwChange > 0;
-    usdChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(data.usdKrwChange).toFixed(2);
-    usdChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
+  if (usdVal) usdVal.textContent = data.usdKrw ? data.usdKrw.toLocaleString('ko-KR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ₩' : '--';
+  if (usdChg) {
+    const chgPct = data.usdKrwChangePercent ?? data.usdKrwChange ?? 0;
+    const chgAbs = data.usdKrwChange ?? 0;
+    const isUp = chgPct > 0;
+    const isZero = chgPct === 0;
+    if (isZero) {
+      usdChg.textContent = '변동없음';
+      usdChg.className = 'mc-change neutral';
+    } else {
+      usdChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(chgPct).toFixed(2) + '%';
+      usdChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
+    }
   }
+
   // S&P500
   const spVal = document.getElementById('sp500-value');
   const spChg = document.getElementById('sp500-change');
-  if (spVal) spVal.textContent = data.sp500 ? data.sp500.toLocaleString() : '--';
+  if (spVal) spVal.textContent = data.sp500 ? data.sp500.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '--';
   if (spChg && data.sp500Change !== undefined) {
     const isUp = data.sp500Change >= 0;
-    spChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(data.sp500Change).toFixed(2) + '%';
-    spChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
+    const isZero = data.sp500Change === 0;
+    if (isZero) {
+      spChg.textContent = '변동없음';
+      spChg.className = 'mc-change neutral';
+    } else {
+      spChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(data.sp500Change).toFixed(2) + '%';
+      spChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
+    }
   }
+
   // NASDAQ
   const nqVal = document.getElementById('nasdaq-value');
   const nqChg = document.getElementById('nasdaq-change');
-  if (nqVal) nqVal.textContent = data.nasdaq ? data.nasdaq.toLocaleString() : '--';
+  if (nqVal) nqVal.textContent = data.nasdaq ? data.nasdaq.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '--';
   if (nqChg && data.nasdaqChange !== undefined) {
     const isUp = data.nasdaqChange >= 0;
-    nqChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(data.nasdaqChange).toFixed(2) + '%';
-    nqChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
+    const isZero = data.nasdaqChange === 0;
+    if (isZero) {
+      nqChg.textContent = '변동없음';
+      nqChg.className = 'mc-change neutral';
+    } else {
+      nqChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(data.nasdaqChange).toFixed(2) + '%';
+      nqChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
+    }
   }
+
   // KOSPI
   const kpVal = document.getElementById('kospi-value');
   const kpChg = document.getElementById('kospi-change');
-  if (kpVal) kpVal.textContent = data.kospi ? data.kospi.toLocaleString() : '--';
+  if (kpVal) kpVal.textContent = data.kospi ? data.kospi.toLocaleString('ko-KR', {minimumFractionDigits:2, maximumFractionDigits:2}) : '--';
   if (kpChg && data.kospiChange !== undefined) {
     const isUp = data.kospiChange >= 0;
-    kpChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(data.kospiChange).toFixed(2) + '%';
-    kpChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
+    const isZero = data.kospiChange === 0;
+    if (isZero) {
+      kpChg.textContent = '변동없음';
+      kpChg.className = 'mc-change neutral';
+    } else {
+      kpChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(data.kospiChange).toFixed(2) + '%';
+      kpChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
+    }
   }
-  // 환율 업데이트
+
+  // D램 환산 환율 업데이트
   const dexUsdKrw = document.getElementById('dex-usd-krw');
   if (dexUsdKrw && data.usdKrw) {
     dexUsdKrw.textContent = data.usdKrw.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // USD/KRW 카드 테두리 색상 (환율 방향에 따라)
+  const usdCard = document.getElementById('usd-krw-card');
+  if (usdCard) {
+    const chgPct = data.usdKrwChangePercent ?? 0;
+    usdCard.classList.remove('card-up', 'card-down');
+    if (chgPct > 0) usdCard.classList.add('card-up');
+    else if (chgPct < 0) usdCard.classList.add('card-down');
   }
 }
 
 function setDefaultMarketData() {
   const defaults = {
-    usdKrw: 1335.00, usdKrwChange: 2.50,
-    sp500: 5923.45, sp500Change: -0.48,
-    nasdaq: 18842.31, nasdaqChange: -0.62,
-    kospi: 2612.40, kospiChange: 0.31
+    usdKrw: 1450.00, usdKrwChange: 0, usdKrwChangePercent: 0,
+    sp500: 5923.45, sp500Change: 0,
+    nasdaq: 18842.31, nasdaqChange: 0,
+    kospi: 2612.40, kospiChange: 0,
+    source: 'fallback'
   };
   updateMarketCards(defaults);
   currentUsdKrw = defaults.usdKrw;
+  updateRefreshStatus(defaults);
 }
 
 // ===== 승률 업데이트 =====
@@ -165,41 +337,35 @@ function updateWinRate() {
     if (chk && chk.checked) count++;
   }
 
-  const rate = count * 10; // 항목당 10%이나 최대 100%로 고정
+  const rate = count * 10;
   const clampedRate = Math.min(rate, 100);
 
-  // 원형 진행률 — 라이트 테마 색상
   const circle = document.getElementById('win-rate-display');
   if (circle) {
     let color;
-    if (clampedRate >= 70) color = '#16a34a';   // 초록
-    else if (clampedRate >= 40) color = '#d97706'; // 앰버
-    else color = '#ea580c';                        // 오렌지
-    const trackColor = '#fde8d4'; // 살색 트랙
+    if (clampedRate >= 70) color = '#16a34a';
+    else if (clampedRate >= 40) color = '#d97706';
+    else color = '#ea580c';
+    const trackColor = '#fde8d4';
     circle.style.background = `conic-gradient(${color} ${clampedRate}%, ${trackColor} ${clampedRate}%)`;
   }
 
   const rateNum = document.getElementById('rate-number');
   if (rateNum) rateNum.textContent = clampedRate;
 
-  // 체크 수 및 텍스트
   const checkedCount = document.getElementById('checked-count');
   if (checkedCount) checkedCount.textContent = count;
-  // 하단 바의 체크 카운트도 동기화
   const checkedCountBottom = document.getElementById('checked-count-bottom');
   if (checkedCountBottom) checkedCountBottom.textContent = count;
 
   const rateText = document.getElementById('rate-text');
   if (rateText) rateText.textContent = clampedRate + '%';
 
-  // 배너 진행바
   const progressBar = document.getElementById('progress-bar');
   if (progressBar) progressBar.style.width = clampedRate + '%';
 
-  // 등급
   updateGrade(clampedRate);
 
-  // 카드 강조
   for (let i = 1; i <= 12; i++) {
     const card = document.getElementById('card-' + i);
     const chk = document.getElementById('chk-' + i);
@@ -278,7 +444,6 @@ function saveInvestment() {
   const rate = Math.min(count * 10, 100);
   const today = getTodayISO();
 
-  // 체크된 항목들 수집
   const checkedItems = [];
   const itemNames = [
     'USD/KRW 환율', '전날 미국장', '815 채널', '증시각도기',
@@ -290,7 +455,6 @@ function saveInvestment() {
     if (chk && chk.checked) checkedItems.push(itemNames[i-1]);
   }
 
-  // 기존 같은 날짜 기록이 있으면 업데이트
   const existingIdx = investmentHistory.findIndex(h => h.date === today);
   const record = {
     date: today,
@@ -350,7 +514,7 @@ function renderHistoryList(data) {
     return;
   }
 
-  listEl.innerHTML = data.map((item, idx) => {
+  listEl.innerHTML = data.map((item) => {
     const realIdx = investmentHistory.indexOf(item);
     let rateClass = 'rate-low', gradeClass = 'grade-low', gradeText = '위험';
     if (item.rate >= 70) { rateClass = 'rate-high'; gradeClass = 'grade-high'; gradeText = '양호+'; }
@@ -502,18 +666,7 @@ function renderHistoryChart() {
 // ===== D램 데이터 =====
 function loadDramData() {
   const now = new Date();
-  const dateStr = now.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' });
 
-  // ─── DRAMeXchange 실제 현물가 (2026-02-27 기준) ───────────────────
-  // 출처: dramexchange.com  |  단위: USD per chip (16Gb 기준)
-  // DDR5 16Gb 4800/5600  세션평균 $39.500  (전일 대비 +0.43%)
-  // DDR5 16Gb eTT         세션평균 $20.600  (+0.49%)
-  // DDR4 16Gb 3200        세션평균 $79.909  (+0.69%)
-  // DDR4 16Gb eTT         세션평균 $13.675  (0.00%)
-  // DDR4 8Gb  3200        세션평균 $32.900  (+0.31%)
-  // DDR4 8Gb  eTT         세션평균 $6.897   (0.00%)
-  // LPDDR5/LPDDR5X: Feb.9 업데이트 기준 (춘절 후 소폭 상승 추세)
-  // HBM3/HBM3E: 계약가 기준 추정값 (DDR5 대비 5~7x 프리미엄)
   dramData = [
     {
       name: 'DDR5 16Gb (2Gx8)', spec: '4800/5600 현물',
@@ -557,7 +710,6 @@ function loadDramData() {
     }
   ];
 
-  // 카드 업데이트
   updateDramCards();
   updateDramKrwTable();
   updateDramStocks();
@@ -630,35 +782,33 @@ function getTrendBar(pct) {
 }
 
 function updateDramStocks() {
-  // ✅ 2026년 2월 27일(금) 실제 종가 기준 (2/28은 토요일 — 장 없음)
-  // 출처: Yahoo Finance, Investing.com, 토스증권, 알파스퀘어
   const stocks = [
     {
       priceId: 'stock-samsung',
       changeId: 'change-samsung',
-      price: 216500,          // 2/27 종가 (₩)
-      prev:  218000,          // 2/26 종가 (₩)
+      price: 216500,
+      prev:  218000,
       isUsd: false
     },
     {
       priceId: 'stock-skhynix',
       changeId: 'change-skhynix',
-      price: 1061000,         // 2/27 종가 (₩)
-      prev:  1099000,         // 2/26 종가 (₩)
+      price: 1061000,
+      prev:  1099000,
       isUsd: false
     },
     {
       priceId: 'stock-micron',
       changeId: 'change-micron',
-      price: 412.37,          // 2/27(금) 종가 ($)
-      prev:  415.56,          // 2/26(목) 종가 ($)
+      price: 412.37,
+      prev:  415.56,
       isUsd: true
     },
     {
       priceId: 'stock-nvda',
       changeId: 'change-nvda',
-      price: 177.19,          // 2/27(금) 종가 ($)
-      prev:  184.89,          // 2/26(목) 종가 ($)
+      price: 177.19,
+      prev:  184.89,
       isUsd: true
     }
   ];

@@ -66,6 +66,22 @@
       </div>
     </div>
 
+    <!-- 실시간 갱신 상태 바 -->
+    <div class="market-status-bar">
+      <div class="msb-left">
+        <span class="source-badge live" id="market-source-badge">● 실시간</span>
+        <span class="msb-label">최근 갱신:</span>
+        <span class="msb-time" id="market-last-update">--</span>
+      </div>
+      <div class="msb-right">
+        <span class="msb-label">다음 갱신까지:</span>
+        <span class="msb-countdown" id="market-countdown">--:--</span>
+        <button class="market-refresh-btn" id="market-refresh-btn" onclick="manualRefreshMarket()" title="지금 갱신">
+          <i class="fas fa-sync-alt"></i>
+        </button>
+      </div>
+    </div>
+
     <!-- 상단 시장 요약 카드 -->
     <div class="market-summary">
       <div class="market-card" id="usd-krw-card">
@@ -75,14 +91,16 @@
           <div class="mc-value" id="usd-krw-value">로딩중...</div>
           <div class="mc-change" id="usd-krw-change"></div>
         </div>
+        <div class="mc-api-tag">ExchangeRate-API</div>
       </div>
       <div class="market-card">
-        <div class="mc-icon"><i class="fab fa-bitcoin"></i></div>
+        <div class="mc-icon"><i class="fas fa-chart-area"></i></div>
         <div class="mc-content">
-          <div class="mc-title">S&P 500</div>
+          <div class="mc-title">S&amp;P 500</div>
           <div class="mc-value" id="sp500-value">로딩중...</div>
           <div class="mc-change" id="sp500-change"></div>
         </div>
+        <div class="mc-api-tag">Yahoo Finance</div>
       </div>
       <div class="market-card">
         <div class="mc-icon"><i class="fas fa-chart-bar"></i></div>
@@ -91,6 +109,7 @@
           <div class="mc-value" id="nasdaq-value">로딩중...</div>
           <div class="mc-change" id="nasdaq-change"></div>
         </div>
+        <div class="mc-api-tag">Yahoo Finance</div>
       </div>
       <div class="market-card">
         <div class="mc-icon"><i class="fas fa-globe-asia"></i></div>
@@ -99,6 +118,7 @@
           <div class="mc-value" id="kospi-value">로딩중...</div>
           <div class="mc-change" id="kospi-change"></div>
         </div>
+        <div class="mc-api-tag">Yahoo Finance</div>
       </div>
     </div>
 
