@@ -56,7 +56,7 @@
         </div>
         <div class="banner-info-row">
           <span class="banner-count">
-            체크 항목: <strong><span id="checked-count">0</span> / 13</strong>
+            체크 항목: <strong><span id="checked-count">0</span> / 14</strong>
           </span>
           <div class="rate-grade" id="rate-grade">
             <span class="grade-icon">🤔</span>
@@ -486,6 +486,36 @@
           <div class="check-badge positive-badge">+10%</div>
         </div>
 
+        <!-- 14. ASPIM Research 유튜브 뷰 -->
+        <div class="check-card" id="card-14">
+          <div class="check-header">
+            <div class="check-icon icon-red"><i class="fab fa-youtube"></i></div>
+            <div class="check-title-area">
+              <h3>ASPIM Research 유튜브 뷰</h3>
+              <p>ASPIM Research 채널 시황 분석 및 매매 의견</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="chk-14" onchange="updateWinRate()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="check-detail">
+            <select class="detail-select" id="sel-14" onchange="updateCardStatus(14)">
+              <option value="">-- 채널 의견 선택 --</option>
+              <option value="positive">👍 긍정적 매수 의견</option>
+              <option value="neutral">🤝 중립 / 관망 의견</option>
+              <option value="negative">👎 부정적 / 매도 의견</option>
+            </select>
+            <div class="channel-link">
+              <a href="https://www.youtube.com/@aspimresearch" target="_blank" class="yt-link">
+                <i class="fab fa-youtube"></i> ASPIM Research 바로가기
+              </a>
+            </div>
+            <textarea class="check-memo" id="memo-14" placeholder="채널 요약 내용을 입력하세요..."></textarea>
+          </div>
+          <div class="check-badge positive-badge">+10%</div>
+        </div>
+
         <!-- 13. 브렌트 유가 (자동체크) -->
         <div class="check-card" id="card-13">
           <div class="check-header">
@@ -526,7 +556,7 @@
           <div class="rsb-items">
             <span class="rsb-item">
               <i class="fas fa-check-square"></i>
-              <span id="checked-count-bottom">0</span> / 13 항목 체크됨
+              <span id="checked-count-bottom">0</span> / 14 항목 체크됨
             </span>
             <span class="rsb-item">
               <i class="fas fa-percentage"></i>

@@ -416,12 +416,68 @@ function updateMarketCards(data) {
     dexEl.textContent = data.usdKrw.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
   }
 
-  // 카드 테두리 색상
+  // ─── Brent Oil 카드 (상단 마켓 카드) ───
+  if (data.brent) {
+    setCardValue('brent-value', '$' + data.brent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}));
+    setCardChange('brent-change', data.brentChange ?? 0, '%');
+
+    // 상단 카드 24h 트렌드 배지
+    const brentTrendCard = document.getElementById('brent-24h-trend-card');
+    if (brentTrendCard && data.brent24hTrend) {
+      const t = data.brent24hTrend;
+      if (t.changePct !== null && t.dataPoints >= 2) {
+        const isUp = t.changePct > 0;
+        brentTrendCard.textContent = `24h: ${isUp ? '▲' : '▼'} ${Math.abs(t.changePct).toFixed(2)}%`;
+        brentTrendCard.className = 'mc-24h-trend ' + (isUp ? 'trend-up' : 'trend-down');
+        brentTrendCard.title = t.note || '';
+      } else {
+        brentTrendCard.textContent = `24h 누적중 (${t.dataPoints}pts)`;
+        brentTrendCard.className = 'mc-24h-trend trend-neutral';
+      }
+    }
+
+    // ─── Brent Oil 체크리스트 카드 내부 표시 (card-13) ───
+    const brentPriceVal = document.getElementById('brent-price-value');
+    if (brentPriceVal) {
+      brentPriceVal.textContent = '$' + data.brent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    }
+    const brentPriceChange = document.getElementById('brent-price-change');
+    if (brentPriceChange) {
+      const chg = data.brentChange ?? 0;
+      const isUp = chg > 0;
+      const isZero = chg === 0;
+      brentPriceChange.textContent = isZero ? '변동없음' : (isUp ? '▲ +' : '▼ ') + Math.abs(chg).toFixed(2) + '%';
+      brentPriceChange.className = 'bpd-change ' + (isZero ? 'neutral' : isUp ? 'up' : 'down');
+    }
+    const brentTrend24h = document.getElementById('brent-24h-trend');
+    if (brentTrend24h && data.brent24hTrend) {
+      const t = data.brent24hTrend;
+      if (t.changePct !== null && t.dataPoints >= 2) {
+        const isUp = t.changePct > 0;
+        brentTrend24h.textContent = `24h: ${isUp ? '▲' : '▼'} ${Math.abs(t.changePct).toFixed(2)}%`;
+        brentTrend24h.className = 'bpd-trend ' + (isUp ? 'bpd-up' : 'bpd-down');
+      } else {
+        brentTrend24h.textContent = `24h 데이터 누적 중 (${t.dataPoints}pts)`;
+        brentTrend24h.className = 'bpd-trend bpd-neutral';
+      }
+    }
+  }
+
+  // 카드 테두리 색상 (USD/KRW & Brent)
   const usdCard = document.getElementById('usd-krw-card');
   if (usdCard) {
     usdCard.classList.remove('card-up','card-down');
     if ((data.usdKrwChangePercent ?? 0) > 0) usdCard.classList.add('card-up');
     else if ((data.usdKrwChangePercent ?? 0) < 0) usdCard.classList.add('card-down');
+  }
+  const brentCard = document.getElementById('brent-card');
+  if (brentCard && data.brent24hTrend) {
+    const t = data.brent24hTrend;
+    brentCard.classList.remove('card-up','card-down');
+    if (t.dataPoints >= 2 && t.changePct !== null) {
+      if (t.changePct > 0) brentCard.classList.add('card-up');
+      else if (t.changePct < 0) brentCard.classList.add('card-down');
+    }
   }
 }
 
@@ -482,40 +538,59 @@ document.addEventListener('change', e => {
 // =====================================================
 //  승률 업데이트
 // =====================================================
+// 체크리스트 총 항목 수 (DOM에서 동적 계산)
+function getTotalCheckItems() {
+  var max = 0;
+  document.querySelectorAll('[id^="chk-"]').forEach(function(el) {
+    var m = el.id.match(/^chk-(\d+)$/);
+    if (m) max = Math.max(max, parseInt(m[1]));
+  });
+  return max;
+}
+
 function updateWinRate() {
-  let count = 0;
-  for (let i = 1; i <= 12; i++) {
-    const chk = document.getElementById('chk-' + i);
+  var total = getTotalCheckItems(); // 현재 DOM 항목 수 (14)
+  var count = 0;
+  for (var i = 1; i <= total; i++) {
+    var chk = document.getElementById('chk-' + i);
     if (chk && chk.checked) count++;
   }
-  const rate = Math.min(count * 10, 100);
+  // 항목당 10% 포션, 10개 초과 시 100% 넘을 수 있음
+  var rate = count * 10;
 
-  const circle = document.getElementById('win-rate-display');
+  var circle = document.getElementById('win-rate-display');
   if (circle) {
-    let color = rate >= 70 ? '#16a34a' : rate >= 40 ? '#d97706' : '#ea580c';
-    circle.style.background = `conic-gradient(${color} ${rate}%, #fde8d4 ${rate}%)`;
+    var color = rate >= 70 ? '#16a34a' : rate >= 40 ? '#d97706' : '#ea580c';
+    if (rate > 100) color = '#7c3aed';
+    var displayPct = Math.min(rate, 100);
+    circle.style.background = 'conic-gradient(' + color + ' ' + displayPct + '%, #fde8d4 ' + displayPct + '%)';
+    circle.style.boxShadow = rate > 100 ? '0 0 0 4px #7c3aed44' : '';
   }
 
-  const rateNum = document.getElementById('rate-number');
-  if (rateNum) rateNum.textContent = rate;
+  var rateNum = document.getElementById('rate-number');
+  if (rateNum) {
+    rateNum.textContent = rate;
+    rateNum.style.color = rate > 100 ? '#7c3aed' : '';
+    rateNum.style.fontWeight = rate > 100 ? '800' : '';
+  }
 
-  ['checked-count','checked-count-bottom'].forEach(id => {
-    const el = document.getElementById(id);
+  ['checked-count','checked-count-bottom'].forEach(function(id) {
+    var el = document.getElementById(id);
     if (el) el.textContent = count;
   });
-  const rateText = document.getElementById('rate-text');
+  var rateText = document.getElementById('rate-text');
   if (rateText) rateText.textContent = rate + '%';
 
-  const progressBar = document.getElementById('progress-bar');
-  if (progressBar) progressBar.style.width = rate + '%';
+  var progressBar = document.getElementById('progress-bar');
+  if (progressBar) progressBar.style.width = Math.min(rate, 100) + '%';
 
   updateGrade(rate);
 
-  for (let i = 1; i <= 12; i++) {
-    const card = document.getElementById('card-' + i);
-    const chk  = document.getElementById('chk-' + i);
-    if (card && chk) {
-      if (chk.checked) card.classList.add('checked');
+  for (var j = 1; j <= total; j++) {
+    var card = document.getElementById('card-' + j);
+    var chkJ = document.getElementById('chk-' + j);
+    if (card && chkJ) {
+      if (chkJ.checked) card.classList.add('checked');
       else card.classList.remove('checked');
     }
   }
@@ -525,7 +600,8 @@ function updateGrade(rate) {
   const gradeEl = document.getElementById('rate-grade');
   if (!gradeEl) return;
   let icon, text, color;
-  if (rate >= 90)      { icon = '🚀'; text = '최상 - 적극 매수'; color = '#15803d'; }
+  if (rate > 100)      { icon = '💎'; text = '초과달성 - 최적 매수'; color = '#7c3aed'; }
+  else if (rate >= 90) { icon = '🚀'; text = '최상 - 적극 매수'; color = '#15803d'; }
   else if (rate >= 70) { icon = '✅'; text = '양호 - 매수 고려'; color = '#16a34a'; }
   else if (rate >= 50) { icon = '👀'; text = '중립 - 관망 권장'; color = '#d97706'; }
   else if (rate >= 30) { icon = '⚠️'; text = '주의 - 신중 접근'; color = '#ea580c'; }
@@ -553,7 +629,7 @@ function toggleChip(el) { el.classList.toggle('active'); }
 // =====================================================
 function confirmInvestment() {
   const count = parseInt(document.getElementById('checked-count')?.textContent || '0');
-  const rate  = Math.min(count * 10, 100);
+  const rate  = count * 10; // 항목당 10%, 100% 초과 가능
 
   document.getElementById('modal-rate-display').textContent = rate + '%';
   document.getElementById('modal-date-display').textContent = getTodayString() + ' (' + getDayOfWeek() + ')';
@@ -574,18 +650,20 @@ function closeModal() { document.getElementById('confirm-modal')?.classList.remo
 
 function saveInvestment() {
   const count = parseInt(document.getElementById('checked-count')?.textContent || '0');
-  const rate  = Math.min(count * 10, 100);
+  const rate  = count * 10; // 항목당 10%, 100% 초과 가능
   const today = getTodayISO();
 
   const itemNames = [
     'USD/KRW 환율','전날 미국장','815 채널','증시각도기',
     '외국인 지분','ETF 자금','연준 발언','Monday 효과',
-    '빅테크 실적','전쟁/지정학','파산 뉴스','기타 이슈'
+    '빅테크 실적','전쟁/지정학','파산 뉴스','기타 이슈',
+    '브렌트 유가','ASPIM Research'
   ];
   const checkedItems = [];
-  for (let i = 1; i <= 12; i++) {
+  const total = getTotalCheckItems();
+  for (let i = 1; i <= total; i++) {
     const chk = document.getElementById('chk-' + i);
-    if (chk?.checked) checkedItems.push(itemNames[i-1]);
+    if (chk?.checked) checkedItems.push(itemNames[i-1] || ('항목' + i));
   }
 
   const existingIdx = investmentHistory.findIndex(h => h.date === today);
