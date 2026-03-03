@@ -445,8 +445,8 @@
           <div class="check-header">
             <div class="check-icon icon-slate"><i class="fas fa-newspaper"></i></div>
             <div class="check-title-area">
-              <h3>기타 주요 뉴스 / 이슈</h3>
-              <p>경제지표, 정책 발표 등 기타 시장 영향 요인</p>
+              <h3>기타 주요 뉴스 / 이슈 <span class="auto-check-title-tag" style="background:#e0e7ff;color:#3730a3">🏦 Fed 자동</span></h3>
+              <p>연준 금리인상 가능성 뉴스 · 매시간 자동 리서치 (증권사·자산운용·해외)</p>
             </div>
             <label class="toggle-switch">
               <input type="checkbox" id="chk-12" onchange="updateWinRate()">
@@ -460,6 +460,27 @@
               <option value="neutral">📄 특이사항 없음 → 중립</option>
               <option value="negative">⛔ 부정적 이슈 다수 → 부정</option>
             </select>
+
+            <!-- ★ Fed 금리인상 뉴스 패널 -->
+            <div class="fed-news-panel" id="fed-news-panel">
+              <div class="fnp-header">
+                <span class="fnp-title"><i class="fas fa-university"></i> Fed 금리인상 가능성 리서치</span>
+                <span class="fnp-badge" id="fed-alert-badge"></span>
+                <button class="fnp-refresh-btn" onclick="loadFedNews(true)" title="지금 새로고침">
+                  <i class="fas fa-sync-alt"></i>
+                </button>
+              </div>
+              <div class="fnp-alert-bar" id="fed-alert-bar" style="display:none"></div>
+              <div class="fnp-meta" id="fed-news-meta">
+                <span id="fed-news-count">-- 건</span>
+                <span class="fnp-sep">|</span>
+                <span id="fed-news-updated">로딩중...</span>
+              </div>
+              <div class="fnp-list" id="fed-news-list">
+                <div class="fnp-loading"><i class="fas fa-spinner fa-spin"></i> 금리인상 관련 뉴스 검색 중...</div>
+              </div>
+            </div>
+
             <textarea class="check-memo" id="memo-12" placeholder="기타 뉴스 및 이슈 메모..."></textarea>
           </div>
           <div class="check-badge positive-badge">+10%</div>

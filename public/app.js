@@ -36,6 +36,9 @@ document.addEventListener('DOMContentLoaded', () => {
   updateWinRate();
   renderHistoryPage();
 
+  // Fed 금리인상 뉴스 로드 (체크12 카드)
+  loadFedNews();
+
   // 1시간 주기 자동 갱신
   scheduleNextRefresh();
 });
@@ -288,6 +291,8 @@ function scheduleNextRefresh() {
   marketRefreshTimer = setTimeout(async () => {
     console.log('[Market] 1시간 주기 자동 갱신');
     await loadMarketDataAndAutoCheck(false);
+    // Fed 뉴스도 매시간 함께 갱신
+    loadFedNews();
     scheduleNextRefresh();
   }, REFRESH_INTERVAL_MS);
 
@@ -319,7 +324,8 @@ async function manualRefreshMarket() {
   });
   scheduleNextRefresh();
   await loadMarketDataAndAutoCheck(true);
-  showToast('📡 시장 데이터 및 자동 체크를 실시간으로 갱신했습니다.', 3000);
+  loadFedNews(true); // 수동 갱신 시 Fed 뉴스도 강제 갱신
+  showToast('📡 시장 데이터, 자동 체크, Fed 뉴스를 실시간으로 갱신했습니다.', 3000);
 }
 
 // ===== 갱신 상태 UI =====
@@ -785,6 +791,132 @@ function updateDramStocks() {
       cEl.className = 'dstock-change ' + (isUp?'up':'down');
     }
   });
+}
+
+// =====================================================
+//  Fed 금리인상 뉴스 로드 & 렌더링
+// =====================================================
+let fedNewsLoading = false;
+
+async function loadFedNews(force = false) {
+  if (fedNewsLoading) return;
+  fedNewsLoading = true;
+
+  const listEl    = document.getElementById('fed-news-list');
+  const metaEl    = document.getElementById('fed-news-meta');
+  const countEl   = document.getElementById('fed-news-count');
+  const updatedEl = document.getElementById('fed-news-updated');
+  const alertBar  = document.getElementById('fed-alert-bar');
+  const alertBadge= document.getElementById('fed-alert-badge');
+
+  if (listEl) listEl.innerHTML = '<div class="fnp-loading"><i class="fas fa-spinner fa-spin"></i> 금리인상 뉴스 검색 중...</div>';
+
+  try {
+    const url = force ? '/api/fed-news?force=true' : '/api/fed-news';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    renderFedNews(data);
+  } catch (e) {
+    console.warn('[FedNews] 로드 실패:', e);
+    if (listEl) listEl.innerHTML = '<div class="fnp-error"><i class="fas fa-exclamation-triangle"></i> 뉴스 로드 실패. 잠시 후 다시 시도됩니다.</div>';
+  } finally {
+    fedNewsLoading = false;
+  }
+}
+
+/**
+ * Fed 금리 뉴스 데이터를 UI에 렌더링
+ */
+function renderFedNews(data) {
+  const listEl    = document.getElementById('fed-news-list');
+  const countEl   = document.getElementById('fed-news-count');
+  const updatedEl = document.getElementById('fed-news-updated');
+  const alertBar  = document.getElementById('fed-alert-bar');
+  const alertBadge= document.getElementById('fed-alert-badge');
+  const panel     = document.getElementById('fed-news-panel');
+
+  if (!listEl) return;
+
+  // 카운트 & 업데이트 시간
+  if (countEl) countEl.textContent = `72h 이내 ${data.totalCount ?? 0}건 (오늘 ${data.todayCount ?? 0}건)`;
+  if (updatedEl) {
+    const fetchedAt = data.fetchedAt ? new Date(data.fetchedAt).toLocaleTimeString('ko-KR', {
+      hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul'
+    }) : '--';
+    updatedEl.textContent = `갱신: ${fetchedAt} KST`;
+  }
+
+  // 경보 배지
+  if (alertBadge) {
+    if (data.isSurge) {
+      alertBadge.textContent = '🚨 급증';
+      alertBadge.className = 'fnp-badge badge-surge';
+    } else if (data.isAlert) {
+      alertBadge.textContent = '⚠️ 증가';
+      alertBadge.className = 'fnp-badge badge-alert';
+    } else if ((data.todayCount ?? 0) > 0) {
+      alertBadge.textContent = `📰 ${data.todayCount}건`;
+      alertBadge.className = 'fnp-badge badge-normal';
+    } else {
+      alertBadge.textContent = '📭 없음';
+      alertBadge.className = 'fnp-badge badge-none';
+    }
+  }
+
+  // 경보 배너 (급증·증가 시만 표시)
+  if (alertBar) {
+    if (data.isAlert || data.isSurge) {
+      alertBar.style.display = 'block';
+      alertBar.textContent = data.alertMsg || '';
+      alertBar.className = 'fnp-alert-bar ' + (data.isSurge ? 'alert-surge' : 'alert-warning');
+    } else {
+      alertBar.style.display = 'none';
+    }
+  }
+
+  // 패널 border 강조 (급증 시)
+  if (panel) {
+    panel.classList.toggle('fnp-surge', !!data.isSurge);
+    panel.classList.toggle('fnp-alert', !!data.isAlert && !data.isSurge);
+  }
+
+  // 뉴스 목록 렌더링
+  if (!data.articles || data.articles.length === 0) {
+    listEl.innerHTML = `
+      <div class="fnp-empty">
+        <i class="fas fa-search"></i>
+        <span>최근 72시간 내 주요 금리인상 관련 뉴스가 없습니다.</span>
+      </div>`;
+    return;
+  }
+
+  // 신뢰도 tier 이름
+  const tierLabel = { 1:'투자은행', 2:'자산운용', 3:'금융미디어', 4:'경제매체', 5:'금융포털', 9:'기타' };
+  const tierClass = { 1:'tier-bank', 2:'tier-fund', 3:'tier-premium', 4:'tier-major', 5:'tier-fin', 9:'tier-other' };
+
+  listEl.innerHTML = data.articles.map((art, i) => {
+    const cls   = tierClass[art.tier] || 'tier-other';
+    const label = tierLabel[art.tier] || '기타';
+    const ageText = art.ageHours < 24
+      ? `${art.ageHours}시간 전`
+      : `${Math.round(art.ageHours/24)}일 전`;
+    const linkHtml = art.link
+      ? `<a href="${escHtml(art.link)}" target="_blank" rel="noopener" class="fnp-link" title="원문 보기"><i class="fas fa-external-link-alt"></i></a>`
+      : '';
+    return `
+      <div class="fnp-item ${i === 0 ? 'fnp-item-first' : ''}">
+        <div class="fnp-item-top">
+          <span class="fnp-src-badge ${cls}">${escHtml(art.srcType || label)}</span>
+          <span class="fnp-src-name">${escHtml(art.source)}</span>
+          <span class="fnp-age">${ageText}</span>
+          ${linkHtml}
+        </div>
+        <div class="fnp-item-title">${escHtml(art.title)}</div>
+        <div class="fnp-item-date"><i class="fas fa-clock"></i> ${art.date} UTC</div>
+      </div>`;
+  }).join('');
 }
 
 // =====================================================

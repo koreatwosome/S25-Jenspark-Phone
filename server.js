@@ -20,8 +20,24 @@ const BRENT_HISTORY_MAX = 48;               // 브렌트유 이력 최대 48포�
 
 const cache = {
   market: { data: null, updatedAt: 0 },
-  news:   { data: null, updatedAt: 0 }
+  news:   { data: null, updatedAt: 0 },
+  fedNews:{ data: null, updatedAt: 0 }
 };
+
+// 서버 사이드 1시간 자동 갱신 스케줄러 (브렌트유 포함 전체 시장 데이터)
+function startMarketScheduler() {
+  setInterval(async () => {
+    console.log('[Scheduler] 1시간 자동 갱신 실행...');
+    cache.market.updatedAt = 0; // 캐시 만료 처리
+    try {
+      await getMarketData();
+      console.log('[Scheduler] 시장 데이터(브렌트유 포함) 갱신 완료');
+    } catch (e) {
+      console.warn('[Scheduler] 갱신 실패:', e.message);
+    }
+  }, CACHE_TTL_MS);
+  console.log(`[Scheduler] 브렌트유·시장 데이터 매 ${CACHE_TTL_MS/60000}분 자동 갱신 스케줄러 시작`);
+}
 
 // USD/KRW 24시간 이력 (매 갱신마다 push)
 let usdKrwHistory = [];
@@ -354,6 +370,201 @@ async function getWarNewsData() {
 }
 
 // =====================================================
+//  Fed 금리인상 가능성 뉴스 수집 (Google News RSS)
+// =====================================================
+const FED_NEWS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;  // 6시간 캐시 (매시간 갱신시 연동)
+
+// 출처 신뢰도 등급 맵 (우선순위 정렬용)
+const SOURCE_TIER = {
+  // 투자은행·자산운용 (최우선)
+  'Goldman Sachs':     { tier: 1, type: '투자은행' },
+  'JPMorgan':          { tier: 1, type: '투자은행' },
+  'Morgan Stanley':    { tier: 1, type: '투자은행' },
+  'Bank of America':   { tier: 1, type: '투자은행' },
+  'Citigroup':         { tier: 1, type: '투자은행' },
+  'Deutsche Bank':     { tier: 1, type: '투자은행' },
+  'UBS':               { tier: 1, type: '투자은행' },
+  'Barclays':          { tier: 1, type: '투자은행' },
+  'BlackRock':         { tier: 2, type: '자산운용' },
+  'Vanguard':          { tier: 2, type: '자산운용' },
+  'Fidelity':          { tier: 2, type: '자산운용' },
+  'PIMCO':             { tier: 2, type: '자산운용' },
+  'Bridgewater':       { tier: 2, type: '자산운용' },
+  // 프리미엄 금융미디어
+  'Bloomberg':         { tier: 3, type: '금융미디어' },
+  'Reuters':           { tier: 3, type: '금융미디어' },
+  'Financial Times':   { tier: 3, type: '금융미디어' },
+  'Wall Street Journal':{ tier: 3, type: '금융미디어' },
+  'The Economist':     { tier: 3, type: '금융미디어' },
+  "Barron's":          { tier: 3, type: '금융미디어' },
+  'Barrons':           { tier: 3, type: '금융미디어' },
+  // 메이저 경제매체
+  'CNBC':              { tier: 4, type: '경제매체' },
+  'MarketWatch':       { tier: 4, type: '경제매체' },
+  'Morningstar':       { tier: 4, type: '경제매체' },
+  'Forbes':            { tier: 4, type: '경제매체' },
+  'The Guardian':      { tier: 4, type: '경제매체' },
+  'Investing.com':     { tier: 4, type: '경제매체' },
+  'Yahoo Finance':     { tier: 5, type: '금융포털' },
+  'Business Insider':  { tier: 5, type: '금융포털' },
+};
+
+/**
+ * Google News RSS에서 Fed 금리인상 가능성 관련 뉴스를 수집합니다.
+ * - 72시간 이내 기사 수집
+ * - 출처별 신뢰도로 우선 정렬
+ * - 최대 10건 반환
+ * - 급증 경보 로직 포함
+ */
+async function fetchFedRateHikeNews() {
+  const queries = [
+    'Federal+Reserve+interest+rate+2026',
+    'Fed+rate+hike+hawkish+probability',
+    'Federal+Reserve+rate+increase+inflation',
+    'Fed+hawkish+Goldman+Sachs+JPMorgan+rate',
+    'interest+rate+hike+Federal+Reserve+forecast',
+    'Fed+rate+outlook+2026+analyst',
+    'Federal+Reserve+monetary+policy+rate'
+  ];
+
+  const seen = new Set();
+  const articles = [];
+  const now = Date.now();
+  const h72 = now - 72 * 60 * 60 * 1000;  // 72시간 이내 (더 넓은 범위)
+
+  for (const q of queries) {
+    const url = `https://news.google.com/rss/search?q=${q}&hl=en-US&gl=US&ceid=US:en`;
+    const rssText = await fetchText(url);
+    if (!rssText) continue;
+
+    const itemMatches = rssText.match(/<item>([\s\S]*?)<\/item>/g) || [];
+
+    for (const item of itemMatches) {
+      const dateMatch  = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
+      const titleMatch = item.match(/<title>([\s\S]*?)<\/title>/);
+      const srcMatch   = item.match(/<source[^>]*>([\s\S]*?)<\/source>/);
+      const linkMatch  = item.match(/<link>([\s\S]*?)<\/link>/);
+
+      if (!dateMatch || !titleMatch) continue;
+
+      const pubTs = new Date(dateMatch[1]).getTime();
+      if (pubTs < h72) continue;
+
+      const rawTitle = titleMatch[1]
+        .replace(/<!\[CDATA\[|\]\]>/g, '')
+        .replace(/&amp;/g, '&')
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .trim();
+
+      // 중복 방지 (제목 앞 50자 기준)
+      const dedupeKey = rawTitle.slice(0, 50).toLowerCase();
+      if (seen.has(dedupeKey)) continue;
+
+      // 금리인상 관련성 필터링 — 넓게 적용 (title에 아래 중 하나 이상 포함)
+      const lc = rawTitle.toLowerCase();
+      const hasFed = (
+        lc.includes('fed') || lc.includes('federal reserve') || lc.includes('fomc') ||
+        lc.includes('central bank') || lc.includes('rba') || lc.includes('bank of england') ||
+        lc.includes('interest rate') || lc.includes('rate decision') || lc.includes('monetary policy')
+      );
+      const hasHike = (
+        lc.includes('rate hike') || lc.includes('rate increase') || lc.includes('raise rate') ||
+        lc.includes('hawkish') || lc.includes('higher rate') || lc.includes('rate rise') ||
+        lc.includes('tightening') || lc.includes('inflation') || lc.includes('hike probability') ||
+        lc.includes('rate cut') || lc.includes('rate outlook') || lc.includes('rate forecast') ||
+        lc.includes('rate change') || lc.includes('rate hold')
+      );
+      const isRelevant = hasFed && hasHike;
+      if (!isRelevant) continue;
+
+      seen.add(dedupeKey);
+
+      const srcName = srcMatch
+        ? srcMatch[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim()
+        : 'Unknown';
+
+      const srcInfo = SOURCE_TIER[srcName] || { tier: 9, type: '기타' };
+      const link = linkMatch ? linkMatch[1].replace(/<!\[CDATA\[|\]\]>/g,'').trim() : '';
+      const dateStr = new Date(pubTs).toISOString().slice(0, 16).replace('T', ' ');
+
+      articles.push({
+        title:   rawTitle.slice(0, 140),
+        source:  srcName,
+        srcType: srcInfo.type,
+        tier:    srcInfo.tier,
+        date:    dateStr,
+        ts:      pubTs,
+        link,
+        ageHours: Math.round((now - pubTs) / 3600000)
+      });
+    }
+  }
+
+  // 정렬: 신뢰도 tier 우선, 동일 tier 내에서 최신순
+  articles.sort((a, b) => a.tier !== b.tier ? a.tier - b.tier : b.ts - a.ts);
+
+  // 최대 10건
+  const top10 = articles.slice(0, 10);
+
+  // 경보 로직: 24h 이내 기사 수 계산
+  const h24 = now - 24 * 60 * 60 * 1000;
+  const todayCount     = articles.filter(a => a.ts >= h24).length;
+  const yesterdayCount = articles.filter(a => a.ts < h24 && a.ts >= h24 - 24 * 3600000).length;
+
+  // 경보 기준: 24h 이내 5건 이상, 또는 전일 대비 50% 이상 증가
+  const changePct = yesterdayCount > 0
+    ? parseFloat(((todayCount - yesterdayCount) / yesterdayCount * 100).toFixed(1))
+    : (todayCount >= 3 ? 100 : 0);
+
+  const isAlert      = todayCount >= 5 || changePct >= 50;
+  const isSurge      = todayCount >= 8 || changePct >= 100;
+
+  let alertLevel = 'normal';
+  let alertMsg   = '';
+  if (isSurge) {
+    alertLevel = 'surge';
+    alertMsg   = `🚨 금리인상 뉴스 급증! 24h ${todayCount}건 (전일 대비 +${Math.abs(changePct)}%) — 시장 경계 필요`;
+  } else if (isAlert) {
+    alertLevel = 'alert';
+    alertMsg   = `⚠️ 금리인상 가능성 뉴스 증가 중 (24h ${todayCount}건) — 주의 필요`;
+  } else if (todayCount > 0) {
+    alertMsg   = `📰 금리인상 관련 뉴스 ${todayCount}건 (72h 이내 총 ${articles.length}건)`;
+  } else {
+    alertMsg   = `📭 최근 72h 주요 금리인상 뉴스 없음 (총 ${articles.length}건)`;
+  }
+
+  console.log(`[FedNews] ${alertMsg}`);
+
+  return {
+    articles: top10,
+    totalCount:     articles.length,
+    todayCount,
+    yesterdayCount,
+    changePct,
+    isAlert,
+    isSurge,
+    alertLevel,
+    alertMsg,
+    fetchedAt:  new Date(now).toISOString(),
+    windowHours: 72,
+    source: 'google_news_rss'
+  };
+}
+
+async function getFedNewsData(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cache.fedNews.data && now - cache.fedNews.updatedAt < FED_NEWS_CACHE_TTL_MS) {
+    return cache.fedNews.data;
+  }
+  const data = await fetchFedRateHikeNews();
+  cache.fedNews.data = data;
+  cache.fedNews.updatedAt = now;
+  return data;
+}
+
+// =====================================================
 //  자동 체크 판단 통합 API  /api/auto-check
 // =====================================================
 async function calcAutoCheck() {
@@ -527,6 +738,21 @@ app.get('/api/war-news', async (req, res) => {
   }
 });
 
+// ★ Fed 금리인상 뉴스 API
+app.get('/api/fed-news', async (req, res) => {
+  try {
+    const force = req.query.force === 'true';
+    const data = await getFedNewsData(force);
+    const cacheAge = Math.floor((Date.now() - cache.fedNews.updatedAt) / 1000);
+    res.setHeader('X-Cache-Age', cacheAge);
+    res.setHeader('X-Cache-TTL', Math.floor(FED_NEWS_CACHE_TTL_MS / 1000));
+    res.json(data);
+  } catch (err) {
+    console.error('[FedNews API Error]', err);
+    res.status(500).json({ error: err.message, articles: [], alertLevel: 'error', alertMsg: '뉴스 수집 오류' });
+  }
+});
+
 // 캐시 상태
 app.get('/api/market/status', (req, res) => {
   const now = Date.now();
@@ -602,13 +828,19 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log(`💹 시장 데이터:    /api/market`);
   console.log(`🤖 자동 체크 판단: /api/auto-check`);
   console.log(`📰 전쟁뉴스:       /api/war-news`);
+  console.log(`🏦 Fed 금리뉴스:   /api/fed-news`);
   console.log(`📈 USD/KRW 이력:   /api/market/usdkrw-history`);
+  console.log(`🛢️  브렌트유 이력:  /api/market/brent-history`);
+
+  // 1시간 자동 갱신 스케줄러 시작 (브렌트유 포함)
+  startMarketScheduler();
 
   try {
     await getMarketData();
     console.log('✅ 초기 시장 데이터 수집 완료 (USD/KRW, 브렌트유 이력 기록 시작)');
-    // 전쟁 뉴스도 백그라운드에서 선로드
+    // 전쟁 뉴스, Fed 뉴스 백그라운드 선로드
     getWarNewsData().then(d => console.log(`✅ 초기 전쟁뉴스 수집 완료: ${d.note}`));
+    getFedNewsData().then(d => console.log(`✅ 초기 Fed금리뉴스 수집 완료: ${d.alertMsg}`));
   } catch (e) {
     console.warn('⚠️ 초기 데이터 수집 실패:', e.message);
   }
