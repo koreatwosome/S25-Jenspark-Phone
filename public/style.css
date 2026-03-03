@@ -485,6 +485,7 @@ body {
 .icon-danger { background: #fee2e2; color: #b91c1c; }
 .icon-rose   { background: #ffe4e6; color: #be123c; }
 .icon-slate  { background: #f1f5f9; color: #64748b; }
+.icon-amber  { background: #fef3c7; color: #92400e; } /* 브렌트유 */
 
 .check-title-area { flex: 1; }
 .check-title-area h3 {
@@ -1376,3 +1377,78 @@ select option { background: var(--card-bg); color: var(--text); }
   margin-right: 4px;
   font-size: 0.64rem;
 }
+
+/* ===== 브렌트유 가격 표시 (체크리스트 카드 내부) ===== */
+.brent-price-display {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+}
+.bpd-label {
+  font-size: 0.72rem;
+  color: #92400e;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.bpd-value {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #78350f;
+}
+.bpd-change {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.bpd-change.up     { color: #15803d; background: #dcfce7; }
+.bpd-change.down   { color: #b91c1c; background: #fee2e2; }
+.bpd-change.neutral{ color: var(--text3); }
+.bpd-trend {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #f5f5f5;
+  color: #555;
+}
+.bpd-trend.trend-up   { background: #dcfce7; color: #15803d; }
+.bpd-trend.trend-down { background: #fee2e2; color: #b91c1c; }
+.bpd-trend.trend-neutral { background: #f1f5f9; color: #64748b; }
+
+/* ===== market-summary 5열 (브렌트유 카드 추가) ===== */
+@media (min-width: 900px) {
+  .market-summary {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+/* ===== 투자승률 100% 초과 표시 ===== */
+.win-rate-circle.overflow-rate {
+  box-shadow: 0 0 24px 6px rgba(124,58,237,0.35);
+}
+.rate-number {
+  font-size: 2.4rem;
+  font-weight: 900;
+  line-height: 1;
+}
+/* 130% 이상 초록 강조 */
+#rate-number[data-over="true"] {
+  color: #7c3aed;
+}
+
+/* 체크 카드 #13 브렌트유 auto-checked 배경 */
+#card-13.auto-checked {
+  border-color: #f59e0b !important;
+  background: linear-gradient(135deg, #fffbeb, #fef3c7) !important;
+}
+
+/* 브렌트유 카드 상승/하락 테두리 */
+#brent-card.card-up   { border-color: #16a34a !important; }
+#brent-card.card-down { border-color: #dc2626 !important; }

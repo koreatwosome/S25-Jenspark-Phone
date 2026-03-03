@@ -264,6 +264,7 @@ function showAutoCheckToast(summary) {
   if (summary.usdKrwDown)  msgs.push('💱 USD/KRW 하락 → 체크1 ON');
   if (summary.nasdaqUp)    msgs.push('📈 NASDAQ 상승 → 체크2 ON');
   if (summary.warNewsUp)   msgs.push('⚔️ 전쟁뉴스 급증 → 체크10 ON');
+  if (summary.brentUp)     msgs.push('🛢️ 브렌트유 상승 → 체크13 ON');
 
   if (msgs.length > 0) {
     showToast('🤖 자동체크: ' + msgs.join(' | '), 5000);

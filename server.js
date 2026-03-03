@@ -16,6 +16,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const CACHE_TTL_MS      = 60 * 60 * 1000;   // 시장 데이터 캐시 1시간
 const NEWS_CACHE_TTL_MS = 60 * 60 * 1000;   // 뉴스 캐시 1시간
 const USD_HISTORY_MAX   = 48;               // 최대 48포인트(48시간) 보관
+const BRENT_HISTORY_MAX = 48;               // 브렌트유 이력 최대 48포인트
 
 const cache = {
   market: { data: null, updatedAt: 0 },
@@ -23,8 +24,9 @@ const cache = {
 };
 
 // USD/KRW 24시간 이력 (매 갱신마다 push)
-// [ { rate: 1459.33, ts: <unix ms> }, ... ]
 let usdKrwHistory = [];
+// 브렌트유 24시간 이력
+let brentHistory = [];
 
 // =====================================================
 //  유틸: HTTPS GET
@@ -151,15 +153,62 @@ function calcUsdKrw24hTrend(currentRate) {
 // =====================================================
 //  실시간 시장 데이터 수집
 // =====================================================
+// =====================================================
+//  브렌트유 24시간 이력 관리
+// =====================================================
+function recordBrentHistory(price) {
+  const now = Date.now();
+  brentHistory.push({ price, ts: now });
+  const cutoff = now - 48 * 60 * 60 * 1000;
+  brentHistory = brentHistory.filter(h => h.ts >= cutoff);
+  if (brentHistory.length > BRENT_HISTORY_MAX) brentHistory = brentHistory.slice(-BRENT_HISTORY_MAX);
+}
+
+/**
+ * 24시간 전 브렌트유 대비 현재가 상승 여부 판단
+ */
+function calcBrent24hTrend(currentPrice) {
+  const now = Date.now();
+  const target = now - 24 * 60 * 60 * 1000;
+
+  if (brentHistory.length < 2) {
+    return { isUp: false, current: currentPrice, ref24h: null, changePct: null, dataPoints: brentHistory.length, note: '데이터 누적 중' };
+  }
+
+  let closest = brentHistory[0];
+  let minDiff = Math.abs(brentHistory[0].ts - target);
+  for (const h of brentHistory) {
+    const diff = Math.abs(h.ts - target);
+    if (diff < minDiff) { minDiff = diff; closest = h; }
+  }
+
+  const ref24h = closest.price;
+  const changePct = parseFloat(((currentPrice - ref24h) / ref24h * 100).toFixed(3));
+  const isUp = changePct > 0;
+
+  return {
+    isUp,
+    current: currentPrice,
+    ref24h,
+    changePct,
+    dataPoints: brentHistory.length,
+    refAge: Math.round((now - closest.ts) / 60000),
+    note: isUp
+      ? `24h 대비 +${Math.abs(changePct).toFixed(2)}% 상승 (유가 강세)`
+      : `24h 대비 ${changePct.toFixed(2)}% 하락 (유가 약세)`
+  };
+}
+
 async function fetchLiveMarketData() {
   console.log('[Market] 실시간 데이터 수집 시작...');
 
-  const [sp500, nasdaq, kospi, usdKrwFx, usdKrwYahoo] = await Promise.all([
+  const [sp500, nasdaq, kospi, usdKrwFx, usdKrwYahoo, brentRaw] = await Promise.all([
     fetchYahooQuote('^GSPC'),
     fetchYahooQuote('^IXIC'),
     fetchYahooQuote('^KS11'),
     fetchUsdKrw(),
-    fetchYahooQuote('KRW=X')
+    fetchYahooQuote('KRW=X'),
+    fetchYahooQuote('BZ=F')   // ★ 브렌트유 선물 (ICE Brent Crude)
   ]);
 
   let usdKrwRate = 1450.0;
@@ -172,9 +221,14 @@ async function fetchLiveMarketData() {
     usdKrwChange = parseFloat((usdKrwRate * (usdKrwYahoo.changePercent / 100)).toFixed(2));
   }
 
-  // 이력 기록
+  // USD/KRW 이력 기록
   recordUsdKrwHistory(usdKrwRate);
   const usdKrw24h = calcUsdKrw24hTrend(usdKrwRate);
+
+  // 브렌트유 이력 기록
+  const brentPrice = brentRaw?.price ?? 75.00;
+  recordBrentHistory(brentPrice);
+  const brent24h = calcBrent24hTrend(brentPrice);
 
   const now = new Date();
   const result = {
@@ -183,7 +237,7 @@ async function fetchLiveMarketData() {
     usdKrwChange,
     usdKrwChangePercent: usdKrwYahoo?.changePercent ?? 0,
     usdKrwPrevClose: usdKrwYahoo?.prevClose ?? usdKrwRate,
-    usdKrw24hTrend: usdKrw24h,  // ★ 24시간 추세
+    usdKrw24hTrend: usdKrw24h,
     sp500: sp500?.price ?? 5923.45,
     sp500Change: sp500?.changePercent ?? 0,
     sp500PrevClose: sp500?.prevClose ?? 5923.45,
@@ -193,19 +247,25 @@ async function fetchLiveMarketData() {
     kospi: kospi?.price ?? 2612.40,
     kospiChange: kospi?.changePercent ?? 0,
     kospiPrevClose: kospi?.prevClose ?? 2612.40,
+    // ★ 브렌트유
+    brent: brentPrice,
+    brentChange: brentRaw?.changePercent ?? 0,
+    brentPrevClose: brentRaw?.prevClose ?? brentPrice,
+    brent24hTrend: brent24h,
     source: (sp500 || nasdaq || kospi || usdKrwFx) ? 'live' : 'fallback',
     sources: {
-      sp500: sp500 ? 'yahoo_finance' : 'fallback',
-      nasdaq: nasdaq ? 'yahoo_finance' : 'fallback',
-      kospi: kospi ? 'yahoo_finance' : 'fallback',
-      usdKrw: usdKrwFx ? 'open_er_api' : (usdKrwYahoo ? 'yahoo_finance' : 'fallback')
+      sp500:   sp500     ? 'yahoo_finance' : 'fallback',
+      nasdaq:  nasdaq    ? 'yahoo_finance' : 'fallback',
+      kospi:   kospi     ? 'yahoo_finance' : 'fallback',
+      usdKrw:  usdKrwFx ? 'open_er_api'  : (usdKrwYahoo ? 'yahoo_finance' : 'fallback'),
+      brent:   brentRaw  ? 'yahoo_finance' : 'fallback'
     }
   };
 
   console.log(
     `[Market] 완료 | USD/KRW=${result.usdKrw}(24h:${usdKrw24h.changePct ?? 'n/a'}%) | ` +
-    `SP500=${result.sp500}(${result.sp500Change}%) | NASDAQ=${result.nasdaq}(${result.nasdaqChange}%) | ` +
-    `KOSPI=${result.kospi}(${result.kospiChange}%)`
+    `NASDAQ=${result.nasdaq}(${result.nasdaqChange}%) | ` +
+    `Brent=$${result.brent}(${result.brentChange}%, 24h:${brent24h.changePct ?? 'n/a'}%)`
   );
 
   return result;
@@ -334,9 +394,6 @@ async function calcAutoCheck() {
   };
 
   // ── 10. 전쟁/지정학적 리스크 뉴스 증가 여부 ──
-  // 전쟁 뉴스가 5% 이상 증가 → 위험 증가 → 체크 ON (투자 자제 신호)
-  // ※ 전쟁 뉴스 급증은 '부정' 시나리오이나, 체크리스트 ON = 승률 계산에 반영
-  //    (사용자 정의: 전쟁 뉴스 증가 → 항목 ON)
   const check10 = {
     id: 10,
     label: '전쟁/지정학적 리스크',
@@ -351,14 +408,33 @@ async function calcAutoCheck() {
     }
   };
 
+  // ── 13. 브렌트유 가격 24시간 상승 여부 ──
+  const brentTrend = market.brent24hTrend || calcBrent24hTrend(market.brent ?? 75.0);
+  const brentUp = brentTrend.isUp;
+  const check13 = {
+    id: 13,
+    label: '브렌트 유가',
+    autoOn: brentUp,
+    reason: brentTrend.note || '데이터 누적 중',
+    detail: {
+      current: market.brent,
+      prevClose: market.brentPrevClose,
+      changePercent: market.brentChange,
+      ref24h: brentTrend.ref24h,
+      changePct24h: brentTrend.changePct,
+      dataPoints: brentTrend.dataPoints
+    }
+  };
+
   return {
     timestamp: new Date().toISOString(),
-    checks: { 1: check1, 2: check2, 10: check10 },
+    checks: { 1: check1, 2: check2, 10: check10, 13: check13 },
     summary: {
-      usdKrwDown: check1.autoOn,
-      nasdaqUp: check2.autoOn,
-      warNewsUp: check10.autoOn,
-      autoOnCount: [check1, check2, check10].filter(c => c.autoOn).length
+      usdKrwDown:  check1.autoOn,
+      nasdaqUp:    check2.autoOn,
+      warNewsUp:   check10.autoOn,
+      brentUp:     check13.autoOn,
+      autoOnCount: [check1, check2, check10, check13].filter(c => c.autoOn).length
     }
   };
 }
@@ -427,6 +503,16 @@ app.get('/api/market/usdkrw-history', (req, res) => {
     count: usdKrwHistory.length,
     oldest: usdKrwHistory.length > 0 ? new Date(usdKrwHistory[0].ts).toISOString() : null,
     latest: usdKrwHistory.length > 0 ? new Date(usdKrwHistory[usdKrwHistory.length - 1].ts).toISOString() : null
+  });
+});
+
+// 브렌트유 24시간 이력 조회
+app.get('/api/market/brent-history', (req, res) => {
+  res.json({
+    history: brentHistory,
+    count: brentHistory.length,
+    oldest: brentHistory.length > 0 ? new Date(brentHistory[0].ts).toISOString() : null,
+    latest: brentHistory.length > 0 ? new Date(brentHistory[brentHistory.length - 1].ts).toISOString() : null
   });
 });
 
@@ -520,7 +606,7 @@ app.listen(PORT, '0.0.0.0', async () => {
 
   try {
     await getMarketData();
-    console.log('✅ 초기 시장 데이터 수집 완료 (USD/KRW 이력 기록 시작)');
+    console.log('✅ 초기 시장 데이터 수집 완료 (USD/KRW, 브렌트유 이력 기록 시작)');
     // 전쟁 뉴스도 백그라운드에서 선로드
     getWarNewsData().then(d => console.log(`✅ 초기 전쟁뉴스 수집 완료: ${d.note}`));
   } catch (e) {

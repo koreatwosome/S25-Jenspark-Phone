@@ -56,7 +56,7 @@
         </div>
         <div class="banner-info-row">
           <span class="banner-count">
-            체크 항목: <strong><span id="checked-count">0</span> / 12</strong>
+            체크 항목: <strong><span id="checked-count">0</span> / 13</strong>
           </span>
           <div class="rate-grade" id="rate-grade">
             <span class="grade-icon">🤔</span>
@@ -119,6 +119,16 @@
           <div class="mc-title">KOSPI</div>
           <div class="mc-value" id="kospi-value">로딩중...</div>
           <div class="mc-change" id="kospi-change"></div>
+        </div>
+        <div class="mc-api-tag">Yahoo Finance</div>
+      </div>
+      <div class="market-card" id="brent-card">
+        <div class="mc-icon"><i class="fas fa-oil-can"></i></div>
+        <div class="mc-content">
+          <div class="mc-title">Brent Oil <span class="mc-auto-tag" title="24시간 상승 시 체크13 자동 ON">🤖체크13</span></div>
+          <div class="mc-value" id="brent-value">로딩중...</div>
+          <div class="mc-change" id="brent-change"></div>
+          <div class="mc-24h-trend trend-neutral" id="brent-24h-trend-card">24h 누적중...</div>
         </div>
         <div class="mc-api-tag">Yahoo Finance</div>
       </div>
@@ -455,6 +465,37 @@
           <div class="check-badge positive-badge">+10%</div>
         </div>
 
+        <!-- 13. 브렌트 유가 (자동체크) -->
+        <div class="check-card" id="card-13">
+          <div class="check-header">
+            <div class="check-icon icon-amber"><i class="fas fa-oil-can"></i></div>
+            <div class="check-title-area">
+              <h3>브렌트 유가 <span class="auto-check-title-tag">🤖 자동</span></h3>
+              <p>브렌트유 24h 상승 시 자동 ON · Yahoo Finance 실시간</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="chk-13" onchange="updateWinRate()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="check-detail">
+            <select class="detail-select" id="sel-13" onchange="updateCardStatus(13)">
+              <option value="">-- 브렌트유 상태 선택 --</option>
+              <option value="positive">🛢️ 유가 상승 → 에너지·정유 긍정</option>
+              <option value="neutral">➡️ 유가 보합 → 중립</option>
+              <option value="negative">📉 유가 하락 → 에너지 부정</option>
+            </select>
+            <div class="brent-price-display" id="brent-price-display">
+              <span class="bpd-label"><i class="fas fa-oil-can"></i> Brent Crude (BZ=F)</span>
+              <span class="bpd-value" id="brent-price-value">로딩중...</span>
+              <span class="bpd-change" id="brent-price-change"></span>
+              <span class="bpd-trend" id="brent-24h-trend">24h 누적중...</span>
+            </div>
+            <textarea class="check-memo" id="memo-13" placeholder="유가 관련 메모..."></textarea>
+          </div>
+          <div class="check-badge positive-badge">+10%</div>
+        </div>
+
       </div><!-- end checklist-grid -->
 
       <!-- 승률 요약 바 -->
@@ -464,7 +505,7 @@
           <div class="rsb-items">
             <span class="rsb-item">
               <i class="fas fa-check-square"></i>
-              <span id="checked-count-bottom">0</span> / 12 항목 체크됨
+              <span id="checked-count-bottom">0</span> / 13 항목 체크됨
             </span>
             <span class="rsb-item">
               <i class="fas fa-percentage"></i>
