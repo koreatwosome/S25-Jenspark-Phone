@@ -72,6 +72,7 @@
         <span class="source-badge live" id="market-source-badge">● 실시간</span>
         <span class="msb-label">최근 갱신:</span>
         <span class="msb-time" id="market-last-update">--</span>
+        <span class="auto-check-label"><i class="fas fa-robot"></i> 자동체크 활성</span>
       </div>
       <div class="msb-right">
         <span class="msb-label">다음 갱신까지:</span>
@@ -87,9 +88,10 @@
       <div class="market-card" id="usd-krw-card">
         <div class="mc-icon"><i class="fas fa-dollar-sign"></i></div>
         <div class="mc-content">
-          <div class="mc-title">USD/KRW</div>
+          <div class="mc-title">USD/KRW <span class="mc-auto-tag" title="24시간 하락 시 체크1 자동 ON">🤖체크1</span></div>
           <div class="mc-value" id="usd-krw-value">로딩중...</div>
           <div class="mc-change" id="usd-krw-change"></div>
+          <div class="mc-24h-trend trend-neutral" id="usd-krw-24h-trend">24h 누적중...</div>
         </div>
         <div class="mc-api-tag">ExchangeRate-API</div>
       </div>
@@ -105,7 +107,7 @@
       <div class="market-card">
         <div class="mc-icon"><i class="fas fa-chart-bar"></i></div>
         <div class="mc-content">
-          <div class="mc-title">NASDAQ</div>
+          <div class="mc-title">NASDAQ <span class="mc-auto-tag" title="전일 대비 상승 시 체크2 자동 ON">🤖체크2</span></div>
           <div class="mc-value" id="nasdaq-value">로딩중...</div>
           <div class="mc-change" id="nasdaq-change"></div>
         </div>
@@ -383,8 +385,8 @@
           <div class="check-header">
             <div class="check-icon icon-danger"><i class="fas fa-fighter-jet"></i></div>
             <div class="check-title-area">
-              <h3>전쟁 / 지정학적 리스크</h3>
-              <p>분쟁 완화 → 안전자산 선호 감소, 주식 유리</p>
+              <h3>전쟁 / 지정학적 리스크 <span class="auto-check-title-tag">🤖 자동</span></h3>
+              <p>미·이란 전쟁 뉴스 5%↑ 시 자동 ON · Google News 실시간 분석</p>
             </div>
             <label class="toggle-switch">
               <input type="checkbox" id="chk-10" onchange="updateWinRate()">
