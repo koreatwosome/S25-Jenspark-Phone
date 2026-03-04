@@ -324,6 +324,155 @@ body {
 .market-card.card-up   { border-color: rgba(220,38,38,0.4); }   /* 환율 상승(원화약세) = 빨간테두리 */
 .market-card.card-down { border-color: rgba(22,163,74,0.4);  }  /* 환율 하락(원화강세) = 초록테두리 */
 
+/* ── 코스피 PBR 카드 테두리 (수준별) ── */
+.market-card.pbr-extreme-low  { border-color: rgba(5,150,105,0.5);  box-shadow: 0 4px 20px rgba(5,150,105,0.12); }
+.market-card.pbr-undervalued  { border-color: rgba(16,185,129,0.45); box-shadow: 0 4px 20px rgba(16,185,129,0.10); }
+.market-card.pbr-fair-low     { border-color: rgba(52,211,153,0.40); }
+.market-card.pbr-fair         { border-color: rgba(245,158,11,0.40); }
+.market-card.pbr-fair-high    { border-color: rgba(249,115,22,0.45); }
+.market-card.pbr-overvalued   { border-color: rgba(239,68,68,0.45);  box-shadow: 0 4px 20px rgba(239,68,68,0.10); }
+.market-card.pbr-bubble       { border-color: rgba(220,38,38,0.55);  box-shadow: 0 4px 20px rgba(220,38,38,0.14); }
+
+/* ── 코스피 PBR 배지 행 ── */
+.mc-pbr-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  flex-wrap: nowrap;
+}
+.mc-pbr-label {
+  font-size: 0.62rem;
+  color: var(--text3);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+/* PBR 수치 배지 */
+.kospi-pbr-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: #94a3b8;
+  transition: background 0.4s ease, transform 0.2s;
+  white-space: nowrap;
+  min-width: 38px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.kospi-pbr-badge:hover {
+  transform: scale(1.05);
+}
+/* PBR 수준 텍스트 */
+.kospi-pbr-level {
+  font-size: 0.6rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: color 0.4s;
+}
+
+/* ── PBR 색상 그라디언트 표시 (배지 색상 수준별) ── */
+/* 극저평가: 짙은 초록 */
+#kospi-card.pbr-extreme-low .kospi-pbr-badge  { background: linear-gradient(135deg, #059669, #047857); }
+/* 저평가: 초록 */
+#kospi-card.pbr-undervalued .kospi-pbr-badge  { background: linear-gradient(135deg, #10b981, #059669); }
+/* 적정하단: 연한 민트 */
+#kospi-card.pbr-fair-low    .kospi-pbr-badge  { background: linear-gradient(135deg, #34d399, #10b981); }
+/* 적정: 노랑/앰버 */
+#kospi-card.pbr-fair        .kospi-pbr-badge  { background: linear-gradient(135deg, #f59e0b, #d97706); }
+/* 적정상단: 주황 */
+#kospi-card.pbr-fair-high   .kospi-pbr-badge  { background: linear-gradient(135deg, #f97316, #ea580c); }
+/* 고평가: 빨강 */
+#kospi-card.pbr-overvalued  .kospi-pbr-badge  { background: linear-gradient(135deg, #ef4444, #dc2626); }
+/* 버블: 진한 빨강 */
+#kospi-card.pbr-bubble      .kospi-pbr-badge  { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+
+/* ══════════════════════════════════════════════════
+   코스피 PER 배지 행 (매일 갱신)
+   ══════════════════════════════════════════════════ */
+/* PER 카드 테두리 강조 (PBR과 독립적) */
+.market-card.per-extreme-low  { border-color: rgba(5,150,105,0.5);  box-shadow: 0 4px 20px rgba(5,150,105,0.12); }
+.market-card.per-undervalued  { border-color: rgba(16,185,129,0.45); box-shadow: 0 4px 20px rgba(16,185,129,0.10); }
+.market-card.per-fair-low     { border-color: rgba(52,211,153,0.40); }
+.market-card.per-fair         { border-color: rgba(245,158,11,0.40); }
+.market-card.per-fair-high    { border-color: rgba(249,115,22,0.45); }
+.market-card.per-overvalued   { border-color: rgba(239,68,68,0.45);  box-shadow: 0 4px 20px rgba(239,68,68,0.10); }
+.market-card.per-bubble       { border-color: rgba(220,38,38,0.55);  box-shadow: 0 4px 20px rgba(220,38,38,0.14); }
+
+/* ── 코스피 PER 배지 행 ── */
+.mc-per-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  flex-wrap: nowrap;
+}
+.mc-per-label {
+  font-size: 0.62rem;
+  color: var(--text3);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+/* PER 수치 배지 */
+.kospi-per-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: #94a3b8;
+  transition: background 0.4s ease, transform 0.2s;
+  white-space: nowrap;
+  min-width: 38px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.kospi-per-badge:hover {
+  transform: scale(1.05);
+}
+/* PER 수준 텍스트 */
+.kospi-per-level {
+  font-size: 0.6rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: color 0.4s;
+}
+/* 후행 PER 보조 표시 */
+.kospi-per-sub {
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: var(--text3);
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+/* ── PER 색상 그라디언트 (수치 낮을수록 초록, 높을수록 빨강) ── */
+/* 극저평가: 짙은 초록 (PER < 9) */
+#kospi-card.per-extreme-low .kospi-per-badge  { background: linear-gradient(135deg, #059669, #047857); }
+/* 저평가: 초록 (PER 9~11) */
+#kospi-card.per-undervalued .kospi-per-badge  { background: linear-gradient(135deg, #10b981, #059669); }
+/* 적정하단: 민트 (PER 11~13) */
+#kospi-card.per-fair-low    .kospi-per-badge  { background: linear-gradient(135deg, #34d399, #10b981); }
+/* 적정: 노랑/앰버 (PER 13~15) */
+#kospi-card.per-fair        .kospi-per-badge  { background: linear-gradient(135deg, #f59e0b, #d97706); }
+/* 적정상단: 주황 (PER 15~18) */
+#kospi-card.per-fair-high   .kospi-per-badge  { background: linear-gradient(135deg, #f97316, #ea580c); }
+/* 고평가: 빨강 (PER 18~22) */
+#kospi-card.per-overvalued  .kospi-per-badge  { background: linear-gradient(135deg, #ef4444, #dc2626); }
+/* 버블: 진한 빨강 (PER > 22) */
+#kospi-card.per-bubble      .kospi-per-badge  { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+
 /* API 출처 태그 */
 .mc-api-tag {
   font-size: 0.6rem;

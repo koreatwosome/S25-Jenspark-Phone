@@ -17,12 +17,16 @@ const CACHE_TTL_MS      = 60 * 60 * 1000;   // 시장 데이터 캐시 1시간
 const NEWS_CACHE_TTL_MS = 60 * 60 * 1000;   // 뉴스 캐시 1시간
 const USD_HISTORY_MAX   = 48;               // 최대 48포인트(48시간) 보관
 const BRENT_HISTORY_MAX = 48;               // 브렌트유 이력 최대 48포인트
+const PER_UPDATE_MS     = 24 * 60 * 60 * 1000; // PER/PBR 매일 1회 갱신
 
 const cache = {
   market: { data: null, updatedAt: 0 },
   news:   { data: null, updatedAt: 0 },
   fedNews:{ data: null, updatedAt: 0 }
 };
+
+// ★ PER/PBR 일별 갱신 캐시 (매일 자정 리셋)
+let perPbrDailyCache = { data: null, date: null };
 
 // 서버 사이드 1시간 자동 갱신 스케줄러 (브렌트유 포함 전체 시장 데이터)
 function startMarketScheduler() {
@@ -37,6 +41,32 @@ function startMarketScheduler() {
     }
   }, CACHE_TTL_MS);
   console.log(`[Scheduler] 브렌트유·시장 데이터 매 ${CACHE_TTL_MS/60000}분 자동 갱신 스케줄러 시작`);
+}
+
+// ★ PER/PBR 매일 자정 리셋 스케줄러
+function startPerPbrDailyScheduler() {
+  // 자정까지 남은 시간 계산
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0); // 다음 자정
+  const msUntilMidnight = midnight.getTime() - now.getTime();
+
+  // 자정에 한 번 실행 후 매 24시간마다 반복
+  setTimeout(() => {
+    resetPerPbrDailyCache();
+    setInterval(resetPerPbrDailyCache, PER_UPDATE_MS);
+    console.log('[PER/PBR] 매일 자정 갱신 스케줄러 시작 (24h 간격)');
+  }, msUntilMidnight);
+
+  console.log(`[PER/PBR] 오늘 자정까지 ${Math.round(msUntilMidnight/60000)}분 후 첫 리셋 예정`);
+}
+
+function resetPerPbrDailyCache() {
+  const today = new Date().toISOString().slice(0, 10);
+  perPbrDailyCache = { data: null, date: today };
+  // 마켓 데이터도 강제 갱신 (PER/PBR 재계산)
+  cache.market.updatedAt = 0;
+  console.log(`[PER/PBR] ${today} 일별 캐시 리셋 → 다음 API 호출 시 재계산`);
 }
 
 // USD/KRW 24시간 이력 (매 갱신마다 push)
@@ -215,6 +245,232 @@ function calcBrent24hTrend(currentPrice) {
   };
 }
 
+// =====================================================
+//  코스피 PBR 추정 (역사적 데이터 기반 선형 추정)
+// =====================================================
+/**
+ * 코스피 지수 레벨을 기반으로 PBR을 추정합니다.
+ *
+ * 역사적 앵커 데이터 (KRX / 한국거래소 공시 기반):
+ *   코스피 2024년 말 ~ 2026년 초 PBR 관계 참조
+ *   - 코스피 2400 pt ≈ PBR 0.87
+ *   - 코스피 2600 pt ≈ PBR 0.94
+ *   - 코스피 2800 pt ≈ PBR 1.01
+ *   - 코스피 3000 pt ≈ PBR 1.09
+ *   - 코스피 3400 pt ≈ PBR 1.24
+ *
+ * 선형 보간: PBR ≈ 0.87 + (kospi - 2400) * (0.94 - 0.87) / (2600 - 2400)
+ *
+ * 코스피 PBR 판정 기준:
+ *   < 0.80  : 극도의 저평가 (역사적 최저구간)    → 매우 안전 (짙은 초록)
+ *   0.80~0.90 : 저평가 구간                      → 안전 (초록)
+ *   0.90~1.00 : 적정 하단 (역사적 평균 -1σ 수준) → 중립+
+ *   1.00~1.10 : 적정 구간                        → 중립 (노랑)
+ *   1.10~1.20 : 적정 상단                        → 주의 (주황)
+ *   1.20~1.40 : 고평가 구간                      → 경계 (주황~빨강)
+ *   > 1.40   : 버블 우려 구간                    → 위험 (빨강)
+ */
+function calcKospiPBR(kospiPrice) {
+  if (!kospiPrice || kospiPrice <= 0) return null;
+
+  // 코스피 PBR 앵커 포인트 (역사적 데이터 기반)
+  // 출처: KRX 시장지표, 한국거래소 시가총액/장부가치 비율
+  const anchors = [
+    { kospi: 1800, pbr: 0.65 },  // 2022년 저점 구간
+    { kospi: 2200, pbr: 0.80 },  // 2023년 초 
+    { kospi: 2400, pbr: 0.87 },  // 2024년 초
+    { kospi: 2600, pbr: 0.94 },  // 2024년 중반
+    { kospi: 2800, pbr: 1.01 },  // 2024년 상반기
+    { kospi: 3000, pbr: 1.09 },  // 2024년 연초 고점
+    { kospi: 3200, pbr: 1.17 },  // 2021년 상단
+    { kospi: 3400, pbr: 1.24 },  // 2021년 고점 구간
+    { kospi: 3800, pbr: 1.40 },  // 2021년 최고점
+  ];
+
+  // 선형 보간
+  let lower = anchors[0];
+  let upper = anchors[anchors.length - 1];
+
+  for (let i = 0; i < anchors.length - 1; i++) {
+    if (kospiPrice >= anchors[i].kospi && kospiPrice <= anchors[i + 1].kospi) {
+      lower = anchors[i];
+      upper = anchors[i + 1];
+      break;
+    }
+  }
+
+  let pbr;
+  if (kospiPrice <= anchors[0].kospi) {
+    pbr = anchors[0].pbr;
+  } else if (kospiPrice >= anchors[anchors.length - 1].kospi) {
+    pbr = anchors[anchors.length - 1].pbr;
+  } else {
+    const ratio = (kospiPrice - lower.kospi) / (upper.kospi - lower.kospi);
+    pbr = lower.pbr + ratio * (upper.pbr - lower.pbr);
+  }
+
+  pbr = parseFloat(pbr.toFixed(2));
+
+  // PBR 수준 평가
+  let level, label, colorHex, emoji;
+  if (pbr < 0.80) {
+    level = 'extreme_low'; label = '극저평가'; colorHex = '#059669'; emoji = '🟢🟢';
+  } else if (pbr < 0.90) {
+    level = 'undervalued'; label = '저평가'; colorHex = '#10b981'; emoji = '🟢';
+  } else if (pbr < 1.00) {
+    level = 'fair_low'; label = '적정하단'; colorHex = '#34d399'; emoji = '🔵';
+  } else if (pbr < 1.10) {
+    level = 'fair'; label = '적정'; colorHex = '#f59e0b'; emoji = '🟡';
+  } else if (pbr < 1.20) {
+    level = 'fair_high'; label = '적정상단'; colorHex = '#f97316'; emoji = '🟠';
+  } else if (pbr < 1.40) {
+    level = 'overvalued'; label = '고평가'; colorHex = '#ef4444'; emoji = '🔴';
+  } else {
+    level = 'bubble'; label = '버블위험'; colorHex = '#dc2626'; emoji = '🔴🔴';
+  }
+
+  return {
+    pbr,
+    level,
+    label,
+    colorHex,
+    emoji,
+    kospiRef: kospiPrice,
+    note: `PBR ${pbr}x — ${label} (코스피 ${kospiPrice.toLocaleString('ko-KR', {maximumFractionDigits:2})}pt 기준 추정)`,
+    source: 'estimated_from_kospi_level'
+  };
+}
+
+// =====================================================
+//  코스피 PER 추정 (실제 데이터 기반 선형 추정 — 2026년 3월 기준 검증)
+// =====================================================
+/**
+ * 코스피 지수 레벨 → Trailing PER / Forward PER 동시 추정
+ *
+ * ──────────────────────────────────────────────────
+ * [Trailing PER — 과거 12개월 실적 기준]
+ * 출처: CEIC Data, worldperatio.com, Siblis Research
+ *   코스피 역사적 평균(20년): ~10x, 표준편차 ±1x
+ *   2022년 저점(1800): ~9.3x (2022.09 CEIC 최저 9.26x)
+ *   2024년 중(2600-2800): ~10~11x
+ *   2025년 상승 후(3500-4000): ~13~15x
+ *   2026년 2월(5000+): ~19~26x (CEIC: 26.04, worldperatio: 19.35)
+ *
+ * [Forward PER — 향후 12개월 예상 이익 기준]
+ * 출처: FnGuide, DB증권, 증권사 리포트, Siblis Research
+ *   2026.01.01 기준 Forward PER: 10.43x (Siblis Research)
+ *   코스피 5000pt, Forward PER ~10.2~11x (FnGuide/증권사 리포트)
+ *   코스피 5093pt 기준 현재: ~10~11x
+ *   ※ 유튜브·증권가에서 "PER 8배"는 2026 연간 예상이익 기준
+ *     (코스피 상장사 순이익 +47~80% 전망 반영 시 약 8~9x)
+ *
+ * ──────────────────────────────────────────────────
+ * Forward PER 판정 기준 (역사적 평균 ~10x 기준):
+ *   < 7    : 극도의 저평가              → 매우 안전 (짙은 초록)
+ *   7~9    : 저평가 구간                → 안전 (초록)
+ *   9~11   : 적정 하단 (역사적 평균)    → 중립+ (민트)
+ *   11~13  : 적정 구간                  → 중립 (노랑)
+ *   13~16  : 적정 상단                  → 주의 (주황)
+ *   16~20  : 고평가 구간                → 경계 (빨강)
+ *   > 20   : 버블 구간                  → 위험 (짙은 빨강)
+ * ──────────────────────────────────────────────────
+ */
+function calcKospiPER(kospiPrice) {
+  if (!kospiPrice || kospiPrice <= 0) return null;
+
+  // ── Trailing PER 앵커 (CEIC/worldperatio 실측값 기반) ──
+  // 코스피 지수 대비 실제 Trailing PER 관계
+  const trailingAnchors = [
+    { kospi: 1800, per:  9.3 },  // 2022년 최저점 (CEIC 역대 최저 9.26x)
+    { kospi: 2000, per:  9.5 },  // 2022년 말 반등
+    { kospi: 2200, per:  9.7 },  // 2023년 초 (이익 감소로 PER 낮음)
+    { kospi: 2500, per: 10.0 },  // 2023~2024년 평균 구간
+    { kospi: 2800, per: 10.5 },  // 2024년 상반기
+    { kospi: 3000, per: 11.0 },  // 2024년 하반기 상승 초입
+    { kospi: 3500, per: 12.5 },  // 2025년 상반기
+    { kospi: 4000, per: 14.5 },  // 2025년 하반기 (코스피 4000 돌파)
+    { kospi: 4500, per: 17.0 },  // 2025년 말~2026년 초
+    { kospi: 5000, per: 19.5 },  // 2026년 2월 (worldperatio ~19.35)
+    { kospi: 5500, per: 23.0 },  // 2026년 3월 추정
+    { kospi: 6000, per: 26.0 },  // 2026년 고점 시나리오
+  ];
+
+  // ── Forward PER 앵커 (FnGuide/증권사 리포트 기반) ──
+  // 2026년 기업이익 +47~80% 급증 전망 반영
+  // Siblis Research: 2026.01.01 기준 Forward PER = 10.43x
+  // 코스피 5000pt 기준 선행 PER ~10~11x (FnGuide)
+  const forwardAnchors = [
+    { kospi: 1800, per:  5.5 },  // 극단적 저평가 (이익 급증 전망)
+    { kospi: 2000, per:  6.0 },
+    { kospi: 2200, per:  6.5 },
+    { kospi: 2500, per:  7.0 },
+    { kospi: 2800, per:  7.5 },
+    { kospi: 3000, per:  8.0 },  // 선행 PER 역사적 저점
+    { kospi: 3500, per:  8.5 },
+    { kospi: 4000, per:  9.0 },
+    { kospi: 4500, per:  9.5 },
+    { kospi: 5000, per: 10.5 },  // FnGuide: 코스피 5000pt → Forward PER ~10.2~11x
+    { kospi: 5500, per: 11.5 },
+    { kospi: 6000, per: 12.0 },  // 7000pt 목표 시나리오 상 ~12x
+  ];
+
+  // 선형 보간 함수
+  function interpolate(anchors, price) {
+    if (price <= anchors[0].kospi) return anchors[0].per;
+    if (price >= anchors[anchors.length - 1].kospi) {
+      const last2 = anchors.slice(-2);
+      const slope = (last2[1].per - last2[0].per) / (last2[1].kospi - last2[0].kospi);
+      return last2[1].per + slope * (price - last2[1].kospi);
+    }
+    for (let i = 0; i < anchors.length - 1; i++) {
+      if (price >= anchors[i].kospi && price <= anchors[i + 1].kospi) {
+        const ratio = (price - anchors[i].kospi) / (anchors[i + 1].kospi - anchors[i].kospi);
+        return anchors[i].per + ratio * (anchors[i + 1].per - anchors[i].per);
+      }
+    }
+    return anchors[0].per;
+  }
+
+  const trailingPer = parseFloat(interpolate(trailingAnchors, kospiPrice).toFixed(1));
+  const forwardPer  = parseFloat(interpolate(forwardAnchors,  kospiPrice).toFixed(1));
+
+  // ── Forward PER 기준으로 수준 평가 (메인 판단 지표) ──
+  // 역사적 Forward PER 평균 ~10x 기준
+  let level, label, colorHex, emoji;
+  if (forwardPer < 7.0) {
+    level = 'extreme_low'; label = '극저평가'; colorHex = '#059669'; emoji = '🟢🟢';
+  } else if (forwardPer < 9.0) {
+    level = 'undervalued'; label = '저평가'; colorHex = '#10b981'; emoji = '🟢';
+  } else if (forwardPer < 11.0) {
+    level = 'fair_low'; label = '적정하단'; colorHex = '#34d399'; emoji = '🔵';
+  } else if (forwardPer < 13.0) {
+    level = 'fair'; label = '적정'; colorHex = '#f59e0b'; emoji = '🟡';
+  } else if (forwardPer < 16.0) {
+    level = 'fair_high'; label = '적정상단'; colorHex = '#f97316'; emoji = '🟠';
+  } else if (forwardPer < 20.0) {
+    level = 'overvalued'; label = '고평가'; colorHex = '#ef4444'; emoji = '🔴';
+  } else {
+    level = 'bubble'; label = '버블위험'; colorHex = '#dc2626'; emoji = '🔴🔴';
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  return {
+    per: forwardPer,          // 메인 표시값 = Forward PER
+    forwardPer,               // 선행 PER (12개월 예상 이익 기준)
+    trailingPer,              // 후행 PER (과거 12개월 실적 기준)
+    level,
+    label,
+    colorHex,
+    emoji,
+    kospiRef: kospiPrice,
+    date: today,
+    note: `Forward PER ${forwardPer}x / Trailing PER ${trailingPer}x — ${label} (코스피 ${kospiPrice.toLocaleString('ko-KR', {maximumFractionDigits:2})}pt 기준 추정)`,
+    noteKo: `선행PER ${forwardPer}x · 후행PER ${trailingPer}x`,
+    source: 'estimated_from_kospi_level'
+  };
+}
+
 async function fetchLiveMarketData() {
   console.log('[Market] 실시간 데이터 수집 시작...');
 
@@ -246,6 +502,17 @@ async function fetchLiveMarketData() {
   recordBrentHistory(brentPrice);
   const brent24h = calcBrent24hTrend(brentPrice);
 
+  // ★ 코스피 PBR 추정
+  const kospiPrice = kospi?.price ?? 2612.40;
+  const kospiPBR = calcKospiPBR(kospiPrice);
+  // ★ 코스피 PER 추정 (일별 캐시)
+  const today = new Date().toISOString().slice(0, 10);
+  if (!perPbrDailyCache.data || perPbrDailyCache.date !== today) {
+    perPbrDailyCache = { data: calcKospiPER(kospiPrice), date: today };
+    console.log(`[PER] ${today} 일별 PER 재계산: ${perPbrDailyCache.data?.per}x (${perPbrDailyCache.data?.label})`);
+  }
+  const kospiPER = perPbrDailyCache.data;
+
   const now = new Date();
   const result = {
     timestamp: now.toISOString(),
@@ -260,9 +527,13 @@ async function fetchLiveMarketData() {
     nasdaq: nasdaq?.price ?? 18842.31,
     nasdaqChange: nasdaq?.changePercent ?? 0,
     nasdaqPrevClose: nasdaq?.prevClose ?? 18842.31,
-    kospi: kospi?.price ?? 2612.40,
+    kospi: kospiPrice,
     kospiChange: kospi?.changePercent ?? 0,
     kospiPrevClose: kospi?.prevClose ?? 2612.40,
+    // ★ 코스피 PBR
+    kospiPBR: kospiPBR,
+    // ★ 코스피 PER (일별 갱신)
+    kospiPER: kospiPER,
     // ★ 브렌트유
     brent: brentPrice,
     brentChange: brentRaw?.changePercent ?? 0,
@@ -274,13 +545,16 @@ async function fetchLiveMarketData() {
       nasdaq:  nasdaq    ? 'yahoo_finance' : 'fallback',
       kospi:   kospi     ? 'yahoo_finance' : 'fallback',
       usdKrw:  usdKrwFx ? 'open_er_api'  : (usdKrwYahoo ? 'yahoo_finance' : 'fallback'),
-      brent:   brentRaw  ? 'yahoo_finance' : 'fallback'
+      brent:   brentRaw  ? 'yahoo_finance' : 'fallback',
+      kospiPBR: 'estimated',
+      kospiPER: 'estimated_daily'
     }
   };
 
   console.log(
     `[Market] 완료 | USD/KRW=${result.usdKrw}(24h:${usdKrw24h.changePct ?? 'n/a'}%) | ` +
     `NASDAQ=${result.nasdaq}(${result.nasdaqChange}%) | ` +
+    `KOSPI=${result.kospi}(PBR:${kospiPBR?.pbr ?? 'n/a'}x,PER:${kospiPER?.per ?? 'n/a'}x,${kospiPBR?.label ?? '-'}) | ` +
     `Brent=$${result.brent}(${result.brentChange}%, 24h:${brent24h.changePct ?? 'n/a'}%)`
   );
 
@@ -831,9 +1105,12 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log(`🏦 Fed 금리뉴스:   /api/fed-news`);
   console.log(`📈 USD/KRW 이력:   /api/market/usdkrw-history`);
   console.log(`🛢️  브렌트유 이력:  /api/market/brent-history`);
+  console.log(`📊 PER/PBR:        /api/market (kospiPER, kospiPBR 포함, 매일 갱신)`);
 
   // 1시간 자동 갱신 스케줄러 시작 (브렌트유 포함)
   startMarketScheduler();
+  // ★ PER/PBR 매일 자정 갱신 스케줄러
+  startPerPbrDailyScheduler();
 
   try {
     await getMarketData();

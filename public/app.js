@@ -410,6 +410,11 @@ function updateMarketCards(data) {
     : '--');
   setCardChange('kospi-change', data.kospiChange ?? 0, '%');
 
+  // ─── 코스피 PBR 배지 ───
+  updateKospiPBR(data.kospiPBR);
+  // ─── 코스피 PER 배지 ───
+  updateKospiPER(data.kospiPER);
+
   // D램 환산 환율
   const dexEl = document.getElementById('dex-usd-krw');
   if (dexEl && data.usdKrw) {
@@ -501,10 +506,143 @@ function setDefaultMarketData() {
     sp500: 5923.45, sp500Change: 0,
     nasdaq: 18842.31, nasdaqChange: 0,
     kospi: 2612.40, kospiChange: 0,
+    kospiPBR: null, kospiPER: null,
     source: 'fallback'
   });
   currentUsdKrw = 1450.0;
   updateRefreshStatus({ source: 'fallback' });
+}
+
+// =====================================================
+//  코스피 PBR 배지 업데이트
+// =====================================================
+/**
+ * 서버에서 받은 kospiPBR 객체를 KOSPI 카드에 표시합니다.
+ * 수치가 낮을수록 초록색(저평가), 높을수록 빨간색(고평가)
+ */
+function updateKospiPBR(pbrData) {
+  const badgeEl = document.getElementById('kospi-pbr-badge');
+  const levelEl = document.getElementById('kospi-pbr-level');
+  const rowEl   = document.getElementById('kospi-pbr-row');
+  const kospiCard = document.getElementById('kospi-card');
+
+  if (!badgeEl) return;
+
+  if (!pbrData || pbrData.pbr === undefined || pbrData.pbr === null) {
+    badgeEl.textContent = '--';
+    badgeEl.style.background = '#94a3b8';
+    badgeEl.style.color = '#fff';
+    if (levelEl) levelEl.textContent = '';
+    return;
+  }
+
+  const pbr = pbrData.pbr;
+  const label = pbrData.label || '';
+  const colorHex = pbrData.colorHex || '#f59e0b';
+  const note = pbrData.note || '';
+
+  // 배지 업데이트
+  badgeEl.textContent = pbr.toFixed(2) + 'x';
+  badgeEl.style.background = colorHex;
+  badgeEl.style.color = '#fff';
+  if (rowEl) rowEl.title = note;
+
+  // 레벨 텍스트
+  if (levelEl) {
+    levelEl.textContent = label;
+    levelEl.style.color = colorHex;
+  }
+
+  // 카드 PBR 강조 클래스 업데이트
+  if (kospiCard) {
+    kospiCard.classList.remove(
+      'pbr-extreme-low','pbr-undervalued','pbr-fair-low',
+      'pbr-fair','pbr-fair-high','pbr-overvalued','pbr-bubble'
+    );
+    const levelClass = {
+      'extreme_low': 'pbr-extreme-low',
+      'undervalued':  'pbr-undervalued',
+      'fair_low':     'pbr-fair-low',
+      'fair':         'pbr-fair',
+      'fair_high':    'pbr-fair-high',
+      'overvalued':   'pbr-overvalued',
+      'bubble':       'pbr-bubble'
+    }[pbrData.level];
+    if (levelClass) kospiCard.classList.add(levelClass);
+  }
+}
+
+// =====================================================
+//  코스피 PER 배지 업데이트 (매일 갱신)
+// =====================================================
+/**
+ * 서버에서 받은 kospiPER 객체를 KOSPI 카드에 표시합니다.
+ * - 메인 배지: Forward PER (선행 PER, 향후 12개월 예상이익 기준)
+ * - 보조 표시: Trailing PER (후행 PER, 과거 12개월 실적 기준)
+ * 수치가 낮을수록 초록색(저평가), 높을수록 빨간색(고평가)
+ * 매일 갱신됩니다.
+ */
+function updateKospiPER(perData) {
+  const badgeEl   = document.getElementById('kospi-per-badge');
+  const subEl     = document.getElementById('kospi-per-sub');
+  const levelEl   = document.getElementById('kospi-per-level');
+  const rowEl     = document.getElementById('kospi-per-row');
+  const kospiCard = document.getElementById('kospi-card');
+
+  if (!badgeEl) return;
+
+  if (!perData || perData.per === undefined || perData.per === null) {
+    badgeEl.textContent = '--';
+    badgeEl.style.background = '#94a3b8';
+    badgeEl.style.color = '#fff';
+    if (subEl)   subEl.textContent = '';
+    if (levelEl) levelEl.textContent = '';
+    return;
+  }
+
+  const forwardPer  = perData.forwardPer  ?? perData.per;
+  const trailingPer = perData.trailingPer ?? null;
+  const label    = perData.label    || '';
+  const colorHex = perData.colorHex || '#f59e0b';
+  const note     = perData.note     || '';
+  const date     = perData.date     || '';
+
+  // ── 메인 배지: Forward PER ──
+  badgeEl.textContent = forwardPer.toFixed(1) + 'x';
+  badgeEl.style.background = colorHex;
+  badgeEl.style.color = '#fff';
+  if (rowEl) rowEl.title = note + (date ? ` (${date} 기준)` : '');
+
+  // ── 보조 표시: 후행 PER ──
+  if (subEl && trailingPer !== null) {
+    subEl.textContent = `후행${trailingPer.toFixed(1)}x`;
+  } else if (subEl) {
+    subEl.textContent = '';
+  }
+
+  // ── 레벨 텍스트 ──
+  if (levelEl) {
+    levelEl.textContent = label;
+    levelEl.style.color = colorHex;
+  }
+
+  // ── 카드 PER 강조 클래스 ──
+  if (kospiCard) {
+    kospiCard.classList.remove(
+      'per-extreme-low','per-undervalued','per-fair-low',
+      'per-fair','per-fair-high','per-overvalued','per-bubble'
+    );
+    const levelClass = {
+      'extreme_low': 'per-extreme-low',
+      'undervalued':  'per-undervalued',
+      'fair_low':     'per-fair-low',
+      'fair':         'per-fair',
+      'fair_high':    'per-fair-high',
+      'overvalued':   'per-overvalued',
+      'bubble':       'per-bubble'
+    }[perData.level];
+    if (levelClass) kospiCard.classList.add(levelClass);
+  }
 }
 
 // =====================================================
