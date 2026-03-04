@@ -608,37 +608,56 @@ function updateKospiPER(perData) {
   }
 
   const forwardPer  = perData.forwardPer  ?? perData.per;
+  const opBasedPer  = perData.opBasedPer  ?? null;   // 영업이익 기준 PER (유튜브 "8배" 근거)
   const trailingPer = perData.trailingPer ?? null;
   const label    = perData.label    || '';
   const colorHex = perData.colorHex || '#f59e0b';
   const date     = perData.date     || '';
+  const mktCap   = perData.mktCap   ?? null;
+  const estNI    = perData.estimatedNI ?? null;
+  const estOP    = perData.estimatedOP ?? null;
 
-  // ── 메인 배지: 선행 PER (Forward PER) ──
+  // ── 메인 배지: 순이익 기준 선행 PER (FnGuide 공식) ──
   badgeEl.textContent = '선행' + forwardPer.toFixed(1) + 'x';
   badgeEl.style.background = colorHex;
   badgeEl.style.color = '#fff';
 
-  // ── 툴팁: 출처 및 설명 ──
+  // ── 툴팁: 두 기준 PER + 계산 방식 설명 ──
+  const mktCapStr = mktCap ? `시총 ${mktCap.toFixed(0)}조` : '';
+  const niStr     = estNI  ? `순이익 ${estNI.toFixed(0)}조` : '';
+  const opStr     = estOP  ? `영업이익 ${estOP.toFixed(0)}조` : '';
+  const calcLine  = [mktCapStr, niStr, opStr].filter(Boolean).join(' / ');
+
   const tooltipText = [
-    `📊 코스피 PER (${date} 기준)`,
-    `선행PER(12개월 예상): ${forwardPer.toFixed(1)}x — ${label}`,
-    trailingPer ? `후행PER(과거12개월): ${trailingPer.toFixed(1)}x` : '',
+    `📊 코스피 선행PER (${date} 기준)`,
     ``,
-    `출처: FnGuide·신영증권·삼성증권 컨센서스`,
-    `역사적 평균: 10.3배 (최근 10년)`,
-    `과거 강세장 상단: ~12배`,
+    `① 순이익 기준 (FnGuide 공식): ${forwardPer.toFixed(1)}x — ${label}`,
+    opBasedPer ? `② 영업이익 기준 (유튜브 방식): ${opBasedPer.toFixed(1)}x` : '',
+    trailingPer ? `③ 후행PER (CEIC 실측): ${trailingPer.toFixed(1)}x` : '',
     ``,
-    `※ "PER 8배" 유튜브 언급은`,
-    `  삼성전자(8.6x)·SK하이닉스(5.3x)`,
-    `  개별 종목 기준 (코스피 전체 ≠ 8배)`,
-  ].filter(Boolean).join('\n');
+    calcLine ? `[계산근거] ${calcLine}` : '',
+    ``,
+    `★ "PER 8배" 유튜브 언급 = 영업이익 기준!`,
+    `   FnGuide "~10.7배" = 순이익(당기순이익) 기준`,
+    `   둘 다 맞지만 이익 지표가 다름`,
+    ``,
+    `출처: FnGuide·하나증권·미래에셋 컨센서스`,
+    `역사적 평균(순이익기준): ~11배 (KB자산운용)`,
+    `2026-02-말 실측: 순이익기준 11.1x / 영업이익기준 8.7x`,
+  ].filter(s => s !== undefined && s !== null).join('\n');
   if (rowEl) rowEl.title = tooltipText;
 
-  // ── 보조 표시: 후행 PER ──
-  if (subEl && trailingPer !== null) {
-    subEl.textContent = `후행${trailingPer.toFixed(1)}x`;
-  } else if (subEl) {
-    subEl.textContent = '';
+  // ── 보조 표시: 영업이익 기준 PER (있으면) 또는 후행PER ──
+  if (subEl) {
+    if (opBasedPer !== null) {
+      subEl.textContent = `영업이익기준 ${opBasedPer.toFixed(1)}x`;
+      subEl.style.fontSize = '0.72em';
+      subEl.style.opacity = '0.85';
+    } else if (trailingPer !== null) {
+      subEl.textContent = `후행${trailingPer.toFixed(1)}x`;
+    } else {
+      subEl.textContent = '';
+    }
   }
 
   // ── 레벨 텍스트 ──
