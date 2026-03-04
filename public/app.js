@@ -577,8 +577,15 @@ function updateKospiPBR(pbrData) {
 // =====================================================
 /**
  * 서버에서 받은 kospiPER 객체를 KOSPI 카드에 표시합니다.
- * - 메인 배지: Forward PER (선행 PER, 향후 12개월 예상이익 기준)
- * - 보조 표시: Trailing PER (후행 PER, 과거 12개월 실적 기준)
+ * - 메인 배지: Forward PER (선행 PER, 향후 12개월 예상이익 기준 — FnGuide 컨센서스)
+ * - 보조 표시: Trailing PER (후행 PER, 과거 12개월 실적 기준 — CEIC 실측)
+ *
+ * ★ 2026년 3월 기준 실제 수치:
+ *   선행PER(Forward): 코스피 6000pt ≈ 10.0~10.7배 (FnGuide/신영증권/삼성증권)
+ *   후행PER(Trailing): 코스피 6000pt ≈ 26배 (CEIC 실측 26.04x, 2026-03-02)
+ *   ※ 유튜브 "PER 8배" = 삼성전자(8.6배)·SK하이닉스(5.3배) 개별 종목 기준
+ *      코스피 전체 선행PER은 10배 수준 (역사적 평균 근방)
+ *
  * 수치가 낮을수록 초록색(저평가), 높을수록 빨간색(고평가)
  * 매일 갱신됩니다.
  */
@@ -604,14 +611,28 @@ function updateKospiPER(perData) {
   const trailingPer = perData.trailingPer ?? null;
   const label    = perData.label    || '';
   const colorHex = perData.colorHex || '#f59e0b';
-  const note     = perData.note     || '';
   const date     = perData.date     || '';
 
-  // ── 메인 배지: Forward PER ──
-  badgeEl.textContent = forwardPer.toFixed(1) + 'x';
+  // ── 메인 배지: 선행 PER (Forward PER) ──
+  badgeEl.textContent = '선행' + forwardPer.toFixed(1) + 'x';
   badgeEl.style.background = colorHex;
   badgeEl.style.color = '#fff';
-  if (rowEl) rowEl.title = note + (date ? ` (${date} 기준)` : '');
+
+  // ── 툴팁: 출처 및 설명 ──
+  const tooltipText = [
+    `📊 코스피 PER (${date} 기준)`,
+    `선행PER(12개월 예상): ${forwardPer.toFixed(1)}x — ${label}`,
+    trailingPer ? `후행PER(과거12개월): ${trailingPer.toFixed(1)}x` : '',
+    ``,
+    `출처: FnGuide·신영증권·삼성증권 컨센서스`,
+    `역사적 평균: 10.3배 (최근 10년)`,
+    `과거 강세장 상단: ~12배`,
+    ``,
+    `※ "PER 8배" 유튜브 언급은`,
+    `  삼성전자(8.6x)·SK하이닉스(5.3x)`,
+    `  개별 종목 기준 (코스피 전체 ≠ 8배)`,
+  ].filter(Boolean).join('\n');
+  if (rowEl) rowEl.title = tooltipText;
 
   // ── 보조 표시: 후행 PER ──
   if (subEl && trailingPer !== null) {
