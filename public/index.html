@@ -56,7 +56,7 @@
         </div>
         <div class="banner-info-row">
           <span class="banner-count">
-            체크 항목: <strong><span id="checked-count">0</span> / 14</strong>
+            체크 항목: <strong><span id="checked-count">0</span> / 15</strong>
           </span>
           <div class="rate-grade" id="rate-grade">
             <span class="grade-icon">🤔</span>
@@ -558,6 +558,57 @@
           <div class="check-badge positive-badge">+10%</div>
         </div>
 
+        <!-- 15. 코스피 12개월 선행 PER 밴드 (자동체크) -->
+        <div class="check-card" id="card-15">
+          <div class="check-header">
+            <div class="check-icon icon-blue"><i class="fas fa-chart-line"></i></div>
+            <div class="check-title-area">
+              <h3>코스피 12개월 선행 PER <span class="auto-check-title-tag">🤖 자동</span></h3>
+              <p>선행PER 10배 이하 시 자동 ON · 밴드: 8배/9배/10배/11배/12배</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="chk-15" onchange="updateWinRate()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="check-detail">
+            <select class="detail-select" id="sel-15" onchange="updateCardStatus(15)">
+              <option value="">-- PER 밴드 상태 선택 --</option>
+              <option value="positive">🟢 선행PER 10배 이하 → 저평가 매수 기회</option>
+              <option value="neutral">🔵 선행PER 10~11배 → 적정 구간</option>
+              <option value="negative">🟡 선행PER 11배 이상 → 적정상단·고평가</option>
+            </select>
+            <!-- ★ 실시간 선행 PER 표시 패널 -->
+            <div class="kospi-fwdper-panel" id="kospi-fwdper-panel">
+              <div class="kfp-header">
+                <span class="kfp-title"><i class="fas fa-chart-bar"></i> 코스피 12개월 선행 PER</span>
+                <span class="kfp-date" id="kfp-date"></span>
+              </div>
+              <div class="kfp-per-row">
+                <span class="kfp-per-value" id="kfp-per-value">--</span>
+                <span class="kfp-band" id="kfp-band"></span>
+                <span class="kfp-label" id="kfp-label"></span>
+              </div>
+              <div class="kfp-band-visual" id="kfp-band-visual">
+                <!-- 밴드 시각화: 8배~12배 -->
+                <div class="kfp-band-track">
+                  <div class="kfp-band-marker" id="kfp-band-marker" style="left:0%"></div>
+                  <div class="kfp-band-tick" style="left:0%"><span>8배</span></div>
+                  <div class="kfp-band-tick" style="left:25%"><span>9배</span></div>
+                  <div class="kfp-band-tick" style="left:50%"><span>10배</span></div>
+                  <div class="kfp-band-tick" style="left:75%"><span>11배</span></div>
+                  <div class="kfp-band-tick" style="left:100%"><span>12배</span></div>
+                </div>
+              </div>
+              <div class="kfp-note">
+                <span class="kfp-note-text">★ 8배 이하 극소수 | 10배 = 역사적 평균 | 12배↑ = 고평가</span>
+              </div>
+            </div>
+            <textarea class="check-memo" id="memo-15" placeholder="선행 PER 관련 메모..."></textarea>
+          </div>
+          <div class="check-badge positive-badge">+10%</div>
+        </div>
+
       </div><!-- end checklist-grid -->
 
       <!-- 승률 요약 바 -->
@@ -567,7 +618,7 @@
           <div class="rsb-items">
             <span class="rsb-item">
               <i class="fas fa-check-square"></i>
-              <span id="checked-count-bottom">0</span> / 14 항목 체크됨
+              <span id="checked-count-bottom">0</span> / 15 항목 체크됨
             </span>
             <span class="rsb-item">
               <i class="fas fa-percentage"></i>

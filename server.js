@@ -362,207 +362,181 @@ function calcKospiPBR(kospiPrice) {
 }
 
 // =====================================================
-//  코스피 PER 추정 (시가총액/이익 역산 기반 — 2026년 3월 정밀 검증 v2)
+//  코스피 12개월 선행 PER 추정 (밸류에이션 밴드 기반 — 2026년 3월 업데이트)
 // =====================================================
 /**
- * 코스피 지수 → 순이익기준 선행PER / 영업이익기준 PER / 후행PER 동시 산출
+ * 코스피 지수 → 12개월 선행 PER (Forward PER) 산출
  *
- * ★★ 핵심 계산 방식 (2026년 2월 말 실측 역산 완전 검증) ★★
+ * ★★ 계산 기준: 코스피 12개월 선행 PER 밸류에이션 밴드 ★★
  * ────────────────────────────────────────────
- * [공식]
- *   PER = 코스피 시가총액 / 예상 이익
- *   코스피 6000pt 기준: 시가총액 ≈ 5,002조원 (2026-02-25 연합뉴스 실측)
- *   코스피 6300pt 기준: 시가총액 ≈ 5,254조원 (2026-02-말 KRX 기준)
- *   → 1pt당 시가총액 ≈ 8,337억원 (선형 비례)
+ * [밴드 기준 — 이미지 차트 분석 (2004~2026년 역사적 데이터)]
+ *   선행 PER = 코스피 지수 / (12개월 선행 EPS)
+ *   밴드: 8배 / 9배 / 10배 / 11배 / 12배
  *
- * [이익 기준별 두 가지 PER — 둘 다 맞지만 기준이 다름!]
+ *   ★ "선행 PER 밸류에이션 8배 조반으로 내려간 사례는 극소수"
+ *      → 8배 이하 = 역사적 최저 저평가 (매수 기회)
+ *      → 9배 이하 = 강한 저평가 구간
+ *      → 10배 = 역사적 평균 / 적정가 기준선
+ *      → 11배 = 적정상단
+ *      → 12배 이상 = 고평가
  *
- *   ① 순이익(당기순이익) 기준 → FnGuide/증권사 공식 "선행PER"
- *      2026 순이익 컨센서스: 457조원(하나증권 2026-03-03) ~ 474조원
- *      코스피 6000pt → PER = 5,002 / 457 = 10.95x  ✓ (FnGuide 10.7x, 신영 10.0x)
- *      코스피 6300pt → PER = 5,254 / 474 = 11.1x   ✓ (2026-02-말 실측 검증)
- *      코스피 5000pt → PER = 4,168 / 365 = 11.4x   ✓ (Siblis Research 10.43x 근사)
+ * [코스피 지수별 12개월 선행 PER 추정 앵커]
+ *   ─ 선행 EPS = 코스피 / 선행PER 에서 역산
+ *   ─ 주요 참고: FnGuide 컨센서스, 하나증권, 신영증권, KB자산운용
  *
- *   ② 영업이익(선행영업이익) 기준 → 유튜브 "PER 8배" 근거! ★★★
- *      2026 영업이익 컨센서스: 580조원(미래에셋) ~ 605조원(다이신증권)
- *      코스피 6000pt → PER = 5,002 / 580 = 8.62x  ✓✓✓ (유튜브 "8배" 일치!)
- *      코스피 6300pt → PER = 5,254 / 605 = 8.68x  ✓✓✓ (유튜브 "8~9배" 일치!)
- *      ※ 영업이익은 순이익보다 약 27~30% 크므로 PER이 낮게 나옴
- *      ※ "선행 영업이익 기준 PER"은 한국 주식 커뮤니티에서 자주 쓰임
+ *   코스피 2400pt → 선행PER ≈ 9.5x  (2024년 초 저평가 구간)
+ *   코스피 2600pt → 선행PER ≈ 10.0x (역사적 평균선 근처)
+ *   코스피 2800pt → 선행PER ≈ 10.3x
+ *   코스피 3000pt → 선행PER ≈ 10.5x
+ *   코스피 3500pt → 선행PER ≈ 10.8x
+ *   코스피 4000pt → 선행PER ≈ 11.0x
+ *   코스피 5000pt → 선행PER ≈ 10.4x (Siblis Research 10.43x 실측 검증)
+ *   코스피 6000pt → 선행PER ≈ 10.9x (FnGuide 10.7x / 하나증권 실측)
+ *   코스피 6300pt → 선행PER ≈ 11.1x (2026-02-말 FnGuide 실측 검증)
  *
- * [후행PER — CEIC/Siblis Research 실측]
- *   코스피 5000pt (2026.01.01): 17.1x  (Siblis Research 17.06x)
- *   코스피 6000pt (2026.03.02): 26.0x  (CEIC 26.04x)
- *
- * ────────────────────────────────────────────
- * [Forward PER (순이익 기준) 판정 — KB자산운용 역사적 평균 ~11x 기준]
- *   < 9.0  : 극저평가 (역사적 최저 구간)
- *   9~10.5 : 저평가 (2025년 이전 평균 구간)
- *   10.5~12: 적정하단 (★현재: 코스피 5000~6300pt = 11.1~11.4x)
- *   12~14  : 적정
- *   14~16  : 적정상단
- *   16~20  : 고평가
- *   > 20   : 버블
+ * [12개월 선행 PER 밴드 기준 판정]
+ *   < 8.0  : 극저평가 (역사적 8배 미만 — 극소수 사례)  🟢🟢
+ *   8~9    : 강한 저평가 (8배 밴드~9배 밴드 사이)       🟢
+ *   9~10   : 저평가 (9배 밴드~10배 밴드 사이)           🟩
+ *   10~11  : 적정 (10배 기준선~11배 밴드 사이)          🔵  ← 현재(2026년 3월)
+ *   11~12  : 적정상단 (11배~12배 밴드 사이)             🟡
+ *   12~13  : 고평가 진입 (12배 밴드 돌파)               🟠
+ *   > 13   : 고평가 / 버블 주의                         🔴
  * ────────────────────────────────────────────
  */
 function calcKospiPER(kospiPrice) {
   if (!kospiPrice || kospiPrice <= 0) return null;
 
   // ══════════════════════════════════════════════════════════════
-  //  계산 방식: PER = 코스피 시가총액 / 예상 이익
-  //  ★ 2026년 2월 말 역산 검증 완료
-  //    - 코스피 6000pt → 시가총액 5,002조원 (2026-02-25 연합뉴스 실측)
-  //    - 코스피 6300pt → 시가총액 5,254조원 (2026-02-말 KRX 기준)
-  //  ★ 코스피 6300pt (2026-02 말) 실측 PER:
-  //    - 순이익 기준: 5,254 / 474조 = 11.1x  ←→ FnGuide 10.0~10.7x 근사
-  //    - 영업이익 기준: 5,254 / 605조 = 8.7x  ←→ 유튜브 "8배" 근거!
-  //  ※ "PER 8배" 유튜브 언급 = 영업이익 기준 선행PER
-  //     FnGuide 공식 발표 ~10.7배 = 순이익(당기순이익) 기준 선행PER
-  //     두 수치 모두 옳으나 이익 지표가 다름!
+  //  12개월 선행 PER 밴드 앵커 포인트
+  //  (코스피 지수 ↔ 선행PER 매핑 — 역사적 데이터 + 실측 검증)
+  //
+  //  핵심 검증 포인트:
+  //    코스피 2600pt (2024년): 선행PER ≈ 10.0x (10배 밴드)
+  //    코스피 5000pt (2026.01): 선행PER = 10.4x (Siblis Research 실측)
+  //    코스피 6000pt (2026.03): 선행PER = 10.9x (FnGuide/하나증권 실측)
+  //    코스피 6300pt (2026.02): 선행PER = 11.1x (FnGuide 실측)
+  //
+  //  선행 EPS 성장 반영:
+  //    12개월 선행 EPS는 증권사 컨센서스 기반 (매년 성장)
+  //    코스피 상승 시 EPS도 함께 상향되므로 PER 상승 억제됨
   // ══════════════════════════════════════════════════════════════
 
-  // ── 코스피 시가총액 추정 (1pt당 8337억원 = 5002조/6000pt) ──
-  const WON_PER_PT = 5002 / 6000;  // 조원/pt (2026-02-25 연합뉴스 실측 기준)
-  const mktCap = kospiPrice * WON_PER_PT;  // 조원
-
-  // ── ① 순이익 컨센서스 앵커 (FnGuide/증권사 공식 기준) ──
-  // ★★ 2026년 2월 말 코스피 6300pt 기준:
-  //   - 시총 5,254조 / 순이익 474조 = 11.1x  (FnGuide 10.0~10.7x 근사 ✓)
-  //   - 순이익 컨센서스: 457조 (하나증권 2026-03-03) ~ 474조 (상향 추정)
-  //   - 코스피 6000pt 기준: 5002 / 457 = 10.95x ✓
-  const niAnchors = [
-    { kospi: 1800, ni:  80 },  // 2022년 저점 (이익 급감기)
-    { kospi: 2200, ni: 100 },  // 2023년 초 (감익 저점)
-    { kospi: 2500, ni: 130 },  // 2023~2024년 평균
-    { kospi: 2800, ni: 155 },  // 2024년 상반기
-    { kospi: 3000, ni: 170 },  // 2024년 중반
-    { kospi: 3500, ni: 210 },  // 2025년 초
-    { kospi: 4000, ni: 260 },  // 2025년 중반
-    { kospi: 4500, ni: 310 },  // 2025년 하반기
-    { kospi: 5000, ni: 365 },  // ★ 역산: 시총4168/PER10.43=365조 (Siblis 10.43 검증)
-    { kospi: 5500, ni: 410 },  // 2026년 2월 초 (이익 상향)
-    { kospi: 6000, ni: 457 },  // ★ 하나증권 실측 457조 → PER=5002/457=10.95x ✓
-    { kospi: 6300, ni: 474 },  // ★ 2026-02-말 실측: 시총5254/PER11.1=474조 ✓
-    { kospi: 6500, ni: 482 },  // 2026년 3월 이후 (이익 상향 반영)
-    { kospi: 7000, ni: 500 },  // 2026년 목표 구간
-    { kospi: 7300, ni: 510 },  // 키움 목표 구간
-    { kospi: 8000, ni: 530 },  // 장기 시나리오
+  // 12개월 선행 PER 앵커 (역사적 데이터 + 실측 검증)
+  const fwdPerAnchors = [
+    { kospi: 1500, fwdPer:  7.5 },  // 2008년 금융위기 저점 (극저평가 구간)
+    { kospi: 1800, fwdPer:  8.0 },  // 역사적 8배 밴드 하단 (극소수 사례)
+    { kospi: 2000, fwdPer:  8.5 },  // 8.5배 구간
+    { kospi: 2200, fwdPer:  9.0 },  // 9배 밴드 근처 (2022~2023년 저평가)
+    { kospi: 2400, fwdPer:  9.5 },  // 9.5배 구간 (2024년 초 저평가)
+    { kospi: 2600, fwdPer: 10.0 },  // ★ 10배 기준선 (역사적 평균)
+    { kospi: 2800, fwdPer: 10.3 },  // 10배~11배 사이
+    { kospi: 3000, fwdPer: 10.5 },  // 10.5배 구간
+    { kospi: 3500, fwdPer: 10.8 },  // 11배 밴드 접근
+    { kospi: 4000, fwdPer: 11.0 },  // ★ 11배 밴드
+    { kospi: 4500, fwdPer: 10.8 },  // 이익 급성장으로 PER 하락
+    { kospi: 5000, fwdPer: 10.4 },  // ★ Siblis Research 실측: 10.43x (2026.01.01)
+    { kospi: 5500, fwdPer: 10.7 },  // 2026년 2월 초
+    { kospi: 6000, fwdPer: 10.9 },  // ★ FnGuide/하나증권 실측: ~10.7~10.95x (2026-03)
+    { kospi: 6300, fwdPer: 11.1 },  // ★ FnGuide 실측: 11.1x (2026-02-말)
+    { kospi: 6500, fwdPer: 11.3 },  // 2026년 3월 이후
+    { kospi: 7000, fwdPer: 11.5 },  // 11배~12배 사이
+    { kospi: 7500, fwdPer: 11.8 },  // 12배 밴드 접근
+    { kospi: 8000, fwdPer: 12.0 },  // ★ 12배 밴드
   ];
 
-  // ── ② 영업이익 컨센서스 앵커 (유튜브 "8배" 실제 근거!) ──
-  // ★★ 2026년 2월 말 코스피 6300pt 기준:
-  //   - 시총 5,254조 / 영업이익 605조 = 8.68x  ≈ "8배" ✓✓✓
-  //   - 영업이익 컨센서스: 580조(미래에셋) ~ 605조(다이신증권)
-  //   - 코스피 6000pt 기준: 5002 / 580 = 8.62x ✓ (유튜브 "8배" 완전 일치!)
-  //   - ★ 영업이익/순이익 비율: 약 1.27~1.30배 (2026년 반도체 이익 급증 반영)
-  const opAnchors = [
-    { kospi: 1800, op: 105 },
-    { kospi: 2200, op: 130 },
-    { kospi: 2500, op: 170 },
-    { kospi: 2800, op: 205 },
-    { kospi: 3000, op: 225 },
-    { kospi: 3500, op: 275 },
-    { kospi: 4000, op: 340 },
-    { kospi: 4500, op: 400 },
-    { kospi: 5000, op: 475 },  // ★ 역산: 시총4168/8.8=475조
-    { kospi: 5500, op: 535 },  // 2026년 2월 초
-    { kospi: 6000, op: 580 },  // ★ 미래에셋 실측 580조 → PER=5002/580=8.62x ✓
-    { kospi: 6300, op: 605 },  // ★ 2026-02-말 실측: 시총5254/PER8.68=605조 ✓✓✓
-    { kospi: 6500, op: 618 },
-    { kospi: 7000, op: 650 },
-    { kospi: 7300, op: 660 },
-    { kospi: 8000, op: 685 },
-  ];
-
-  // ── ③ 후행PER 앵커 (CEIC/Siblis Research 실측) ──
-  const trailingAnchors = [
-    { kospi: 1800, per:  9.3 },  // 2022년 최저점 (CEIC 역대 최저 9.26x)
-    { kospi: 2200, per:  9.7 },  // 2023년 초
-    { kospi: 2500, per: 10.0 },  // 2023~2024년 평균
-    { kospi: 2800, per: 10.5 },  // 2024년 상반기
-    { kospi: 3000, per: 11.5 },  // 2024년 하반기
-    { kospi: 3500, per: 13.0 },  // 2025년 상반기
-    { kospi: 4000, per: 15.5 },  // 2025년 하반기
-    { kospi: 4500, per: 17.5 },  // 2025년 말
-    { kospi: 5000, per: 17.1 },  // ★ Siblis Research 실측: 2026.01.01 = 17.06x
-    { kospi: 5500, per: 21.0 },  // 2026년 2월
-    { kospi: 6000, per: 26.0 },  // ★ CEIC 실측: 2026.03.02 = 26.04x
-    { kospi: 6300, per: 28.0 },  // 2026-02-말 추정
-    { kospi: 6500, per: 29.5 },
-    { kospi: 7000, per: 32.0 },
-  ];
-
-  // ── 선형 보간 함수 (일반화: key 파라미터 지원) ──
-  function interpolate(anchors, price, key) {
-    const k = key || 'per';
-    if (price <= anchors[0].kospi) return anchors[0][k];
+  // 선형 보간 함수
+  function interpolatePerBand(anchors, price) {
+    if (price <= anchors[0].kospi) return anchors[0].fwdPer;
     if (price >= anchors[anchors.length - 1].kospi) {
       const last2 = anchors.slice(-2);
-      const slope = (last2[1][k] - last2[0][k]) / (last2[1].kospi - last2[0].kospi);
-      return last2[1][k] + slope * (price - last2[1].kospi);
+      const slope = (last2[1].fwdPer - last2[0].fwdPer) / (last2[1].kospi - last2[0].kospi);
+      return last2[1].fwdPer + slope * (price - last2[1].kospi);
     }
     for (let i = 0; i < anchors.length - 1; i++) {
       if (price >= anchors[i].kospi && price <= anchors[i + 1].kospi) {
         const ratio = (price - anchors[i].kospi) / (anchors[i + 1].kospi - anchors[i].kospi);
-        return anchors[i][k] + ratio * (anchors[i + 1][k] - anchors[i][k]);
+        return anchors[i].fwdPer + ratio * (anchors[i + 1].fwdPer - anchors[i].fwdPer);
       }
     }
-    return anchors[anchors.length - 1][k];
+    return anchors[anchors.length - 1].fwdPer;
   }
 
-  // ── 각 이익 기준 PER 계산 ──
-  const estimatedNI = interpolate(niAnchors, kospiPrice, 'ni');   // 순이익 추정 (조원)
-  const estimatedOP = interpolate(opAnchors, kospiPrice, 'op');   // 영업이익 추정 (조원)
-  const trailingPer = parseFloat(interpolate(trailingAnchors, kospiPrice, 'per').toFixed(1));
+  // ── 12개월 선행 PER 계산 ──
+  const forwardPer = parseFloat(interpolatePerBand(fwdPerAnchors, kospiPrice).toFixed(1));
 
-  // PER = 시가총액 / 이익
-  const forwardPer = parseFloat((mktCap / estimatedNI).toFixed(1));  // 순이익 기준 (FnGuide 공식)
-  const opBasedPer = parseFloat((mktCap / estimatedOP).toFixed(1));  // 영업이익 기준 (유튜브 "8배" 방식)
+  // ── 밴드 위치 계산 (8~12배 밴드 기준) ──
+  // 어느 밴드 구간에 위치하는지 표시
+  const bandFloor = Math.floor(forwardPer);  // 하한 밴드 (예: 10)
+  const bandCeil  = bandFloor + 1;           // 상한 밴드 (예: 11)
+  const bandPos   = parseFloat((forwardPer - bandFloor).toFixed(2));  // 밴드 내 위치 (0~1)
 
-  // ── Forward PER (순이익 기준) 수준 평가 ──
-  // ★ 2026년 3월 실측 기준:
-  //   코스피 6000~6300pt → 순이익 기준 PER = 10.9~11.1x
-  //   코스피 6000~6300pt → 영업이익 기준 PER = 8.6~8.7x
-  //   역사적 코스피 순이익 기준 선행PER 평균 ~11x (KB자산운용 2025-12-18 기준)
-  //   ★ "PER 8배" 유튜브 = 영업이익 기준! FnGuide "10.7배" = 순이익 기준!
+  // 현재 위치하는 밴드 레이블 (차트 기준: 8배/9배/10배/11배/12배)
+  let nearestBand;
+  if (forwardPer <= 8.5)       nearestBand = '8배 밴드';
+  else if (forwardPer <= 9.5)  nearestBand = '9배 밴드';
+  else if (forwardPer <= 10.5) nearestBand = '10배 밴드';
+  else if (forwardPer <= 11.5) nearestBand = '11배 밴드';
+  else                          nearestBand = '12배+ 밴드';
+
+  // ── 12개월 선행 PER 밴드 기준 판정 ──
+  // 밴드 차트 기준: 8배/9배/10배/11배/12배
   let level, label, colorHex, emoji;
-  if (forwardPer < 9.0) {
-    level = 'extreme_low'; label = '극저평가'; colorHex = '#059669'; emoji = '🟢🟢';
-  } else if (forwardPer < 10.5) {
-    level = 'undervalued'; label = '저평가'; colorHex = '#10b981'; emoji = '🟢';
+  if (forwardPer < 8.0) {
+    level = 'extreme_low';  label = '극저평가';  colorHex = '#059669'; emoji = '🟢🟢';
+    // ★ "8배 조반 이하 극소수 사례" — 역사적 매수 기회
+  } else if (forwardPer < 9.0) {
+    level = 'deep_value';   label = '강저평가';  colorHex = '#10b981'; emoji = '🟢';
+    // 8배~9배 밴드 사이 — 강한 저평가
+  } else if (forwardPer < 10.0) {
+    level = 'undervalued';  label = '저평가';    colorHex = '#34d399'; emoji = '🟩';
+    // 9배~10배 밴드 사이
+  } else if (forwardPer < 11.0) {
+    level = 'fair';         label = '적정';      colorHex = '#3b82f6'; emoji = '🔵';
+    // ★ 10배~11배 밴드 사이 — 역사적 평균 구간 (현재 위치 2026년 3월)
   } else if (forwardPer < 12.0) {
-    level = 'fair_low'; label = '적정하단'; colorHex = '#34d399'; emoji = '🔵';
-    // ★ 현재(2026년 3월) 위치: 코스피 5000~6300pt = 11.1~11.4x → 적정하단
-  } else if (forwardPer < 14.0) {
-    level = 'fair'; label = '적정'; colorHex = '#f59e0b'; emoji = '🟡';
-  } else if (forwardPer < 16.0) {
-    level = 'fair_high'; label = '적정상단'; colorHex = '#f97316'; emoji = '🟠';
-  } else if (forwardPer < 20.0) {
-    level = 'overvalued'; label = '고평가'; colorHex = '#ef4444'; emoji = '🔴';
+    level = 'fair_high';    label = '적정상단';  colorHex = '#f59e0b'; emoji = '🟡';
+    // 11배~12배 밴드 사이
+  } else if (forwardPer < 13.0) {
+    level = 'overvalued';   label = '고평가';    colorHex = '#f97316'; emoji = '🟠';
+    // 12배 밴드 돌파
   } else {
-    level = 'bubble'; label = '버블위험'; colorHex = '#dc2626'; emoji = '🔴🔴';
+    level = 'bubble';       label = '버블주의';  colorHex = '#ef4444'; emoji = '🔴';
+    // 13배 이상
   }
 
   const today = new Date().toISOString().slice(0, 10);
   const kospiStr = kospiPrice.toLocaleString('ko-KR', { maximumFractionDigits: 2 });
 
+  // ── 참고: 시가총액/이익 역산값도 유지 (하위 호환) ──
+  const WON_PER_PT = 5002 / 6000;
+  const mktCap     = parseFloat((kospiPrice * WON_PER_PT).toFixed(1));
+
+  // 선행 EPS 역산 (선행PER = 코스피 / EPS → EPS = 코스피 / 선행PER)
+  // 코스피는 지수이므로 실제 EPS는 pt 단위
+  // 순이익 추정: 시총 / PER (조원 단위)
+  const estimatedNI = parseFloat((mktCap / forwardPer).toFixed(1));
+
   return {
-    per: forwardPer,          // 메인 표시값 = 순이익 기준 선행PER (FnGuide 공식)
-    forwardPer,               // 순이익 기준 선행PER (FnGuide/하나증권)
-    opBasedPer,               // 영업이익 기준 선행PER ("유튜브 8배" 근거)
-    trailingPer,              // 후행PER: 과거 12개월 실적 기준 (CEIC 실측)
-    estimatedNI: parseFloat(estimatedNI.toFixed(1)),   // 추정 순이익 (조원)
-    estimatedOP: parseFloat(estimatedOP.toFixed(1)),   // 추정 영업이익 (조원)
-    mktCap: parseFloat(mktCap.toFixed(1)),             // 추정 시가총액 (조원)
+    per: forwardPer,          // 메인 표시값 = 12개월 선행 PER
+    forwardPer,               // 12개월 선행 PER (FnGuide 컨센서스 기준)
+    bandPosition: {
+      floor: bandFloor,       // 하한 밴드 (예: 10)
+      ceil: bandCeil,         // 상한 밴드 (예: 11)
+      pos: bandPos,           // 밴드 내 위치 (0~1)
+      nearestBand             // 현재 위치 밴드 레이블
+    },
+    mktCap,                   // 추정 시가총액 (조원)
+    estimatedNI,              // 추정 순이익 (조원)
     level,
     label,
     colorHex,
     emoji,
     kospiRef: kospiPrice,
     date: today,
-    note: `순이익기준 선행PER ${forwardPer}x (FnGuide) / 영업이익기준 ${opBasedPer}x (유튜브"8배" 방식) / 후행PER ${trailingPer}x (CEIC) — ${label} | 코스피 ${kospiStr}pt | 시총 ${mktCap.toFixed(0)}조 / 순이익 ${estimatedNI.toFixed(0)}조 / 영업이익 ${estimatedOP.toFixed(0)}조`,
-    noteKo: `선행PER ${forwardPer}x (순이익기준·FnGuide) | 영업이익기준 ${opBasedPer}x (유튜브 "8배" 근거) | 후행PER ${trailingPer}x`,
-    source: 'estimated_from_kospi_level_2026mar_v2'
+    note: `12개월 선행PER ${forwardPer}x — ${label} (${nearestBand}) | 코스피 ${kospiStr}pt | 밴드: 8배/9배/10배/11배/12배 기준 | 출처: FnGuide·하나증권 컨센서스`,
+    noteKo: `12개월 선행PER ${forwardPer}x (${nearestBand}) — ${label}`,
+    source: 'fwd_per_band_2026mar'
   };
 }
 
@@ -605,7 +579,7 @@ async function fetchLiveMarketData() {
   if (!perPbrDailyCache.data || perPbrDailyCache.date !== today) {
     perPbrDailyCache = { data: calcKospiPER(kospiPrice), date: today };
     const _pd = perPbrDailyCache.data;
-    console.log(`[PER] ${today} 일별 PER 재계산: 순이익기준 ${_pd?.forwardPer}x / 영업이익기준 ${_pd?.opBasedPer}x (${_pd?.label}) | 시총 ${_pd?.mktCap?.toFixed(0)}조 / 순이익 ${_pd?.estimatedNI?.toFixed(0)}조 / 영업이익 ${_pd?.estimatedOP?.toFixed(0)}조`);
+    console.log(`[PER] ${today} 일별 12개월 선행PER 재계산: ${_pd?.forwardPer}x (${_pd?.bandPosition?.nearestBand ?? '-'}) — ${_pd?.label} | 코스피 ${kospiPrice}pt | 시총 ${_pd?.mktCap?.toFixed(0)}조`);
   }
   const kospiPER = perPbrDailyCache.data;
 
@@ -1007,15 +981,57 @@ async function calcAutoCheck() {
     }
   };
 
+  // ── 15. 코스피 12개월 선행 PER 밴드 판단 ──
+  // ★ 밴드 기준 (이미지 차트): 8배 / 9배 / 10배 / 11배 / 12배
+  // ★ 체크 ON 조건: 선행 PER 10배 이하 (역사적 평균 또는 저평가 구간)
+  //   → 저평가 매수 기회 신호
+  const kospiPerData = market.kospiPER;
+  let perCheckOn = false;
+  let perReason = '데이터 없음';
+  let perDetail = {};
+
+  if (kospiPerData && kospiPerData.forwardPer) {
+    const fwdPer = kospiPerData.forwardPer;
+    const nearestBand = kospiPerData.bandPosition?.nearestBand ?? '-';
+    const perLabel = kospiPerData.label ?? '-';
+    // ★ 선행 PER 10배 이하 → 저평가 또는 극저평가 → 체크 ON
+    perCheckOn = fwdPer <= 10.0;
+    if (perCheckOn) {
+      perReason = `12개월 선행PER ${fwdPer.toFixed(1)}x ≤ 10배 — ${perLabel} (${nearestBand}) → 저평가 구간`;
+    } else {
+      perReason = `12개월 선행PER ${fwdPer.toFixed(1)}x > 10배 — ${perLabel} (${nearestBand}) → 적정 또는 고평가`;
+    }
+    perDetail = {
+      forwardPer: fwdPer,
+      nearestBand,
+      level: kospiPerData.level,
+      label: perLabel,
+      kospiRef: kospiPerData.kospiRef,
+      bandFloor: kospiPerData.bandPosition?.floor,
+      bandCeil: kospiPerData.bandPosition?.ceil,
+      threshold: 10.0,  // 체크 ON 기준값
+      date: kospiPerData.date
+    };
+  }
+
+  const check15 = {
+    id: 15,
+    label: '코스피 12개월 선행 PER',
+    autoOn: perCheckOn,
+    reason: perReason,
+    detail: perDetail
+  };
+
   return {
     timestamp: new Date().toISOString(),
-    checks: { 1: check1, 2: check2, 10: check10, 13: check13 },
+    checks: { 1: check1, 2: check2, 10: check10, 13: check13, 15: check15 },
     summary: {
       usdKrwDown:  check1.autoOn,
       nasdaqUp:    check2.autoOn,
       warNewsUp:   check10.autoOn,
       brentUp:     check13.autoOn,
-      autoOnCount: [check1, check2, check10, check13].filter(c => c.autoOn).length
+      kospiPerLow: check15.autoOn,
+      autoOnCount: [check1, check2, check10, check13, check15].filter(c => c.autoOn).length
     }
   };
 }

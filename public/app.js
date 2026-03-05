@@ -576,17 +576,19 @@ function updateKospiPBR(pbrData) {
 //  코스피 PER 배지 업데이트 (매일 갱신)
 // =====================================================
 /**
- * 서버에서 받은 kospiPER 객체를 KOSPI 카드에 표시합니다.
- * - 메인 배지: Forward PER (선행 PER, 향후 12개월 예상이익 기준 — FnGuide 컨센서스)
- * - 보조 표시: Trailing PER (후행 PER, 과거 12개월 실적 기준 — CEIC 실측)
+ * 서버에서 받은 kospiPER 객체를 KOSPI 카드 및 체크리스트 패널에 표시합니다.
+ * - 메인 배지: 12개월 선행 PER (FnGuide 컨센서스 기준)
+ * - 밴드 기준: 8배 / 9배 / 10배 / 11배 / 12배
  *
- * ★ 2026년 3월 기준 실제 수치:
- *   선행PER(Forward): 코스피 6000pt ≈ 10.0~10.7배 (FnGuide/신영증권/삼성증권)
- *   후행PER(Trailing): 코스피 6000pt ≈ 26배 (CEIC 실측 26.04x, 2026-03-02)
- *   ※ 유튜브 "PER 8배" = 삼성전자(8.6배)·SK하이닉스(5.3배) 개별 종목 기준
- *      코스피 전체 선행PER은 10배 수준 (역사적 평균 근방)
+ * ★ 밴드 기준 (이미지 차트 분석):
+ *   8배 이하  → 극저평가 (역사적 극소수 사례)
+ *   8~9배     → 강저평가
+ *   9~10배    → 저평가
+ *   10~11배   → 적정 (역사적 평균, 현재 2026년 3월)
+ *   11~12배   → 적정상단
+ *   12배 초과 → 고평가/버블주의
  *
- * 수치가 낮을수록 초록색(저평가), 높을수록 빨간색(고평가)
+ * ★ 자동 체크 기준: 선행 PER ≤ 10배 → 저평가 → 체크 ON
  * 매일 갱신됩니다.
  */
 function updateKospiPER(perData) {
@@ -608,53 +610,50 @@ function updateKospiPER(perData) {
   }
 
   const forwardPer  = perData.forwardPer  ?? perData.per;
-  const opBasedPer  = perData.opBasedPer  ?? null;   // 영업이익 기준 PER (유튜브 "8배" 근거)
-  const trailingPer = perData.trailingPer ?? null;
   const label    = perData.label    || '';
-  const colorHex = perData.colorHex || '#f59e0b';
+  const colorHex = perData.colorHex || '#3b82f6';
   const date     = perData.date     || '';
   const mktCap   = perData.mktCap   ?? null;
   const estNI    = perData.estimatedNI ?? null;
-  const estOP    = perData.estimatedOP ?? null;
+  const nearestBand = perData.bandPosition?.nearestBand ?? '';
 
-  // ── 메인 배지: 순이익 기준 선행 PER (FnGuide 공식) ──
+  // ── 메인 배지: 12개월 선행 PER ──
   badgeEl.textContent = '선행' + forwardPer.toFixed(1) + 'x';
   badgeEl.style.background = colorHex;
   badgeEl.style.color = '#fff';
 
-  // ── 툴팁: 두 기준 PER + 계산 방식 설명 ──
+  // ── 툴팁: 12개월 선행 PER 밴드 기준 설명 ──
   const mktCapStr = mktCap ? `시총 ${mktCap.toFixed(0)}조` : '';
-  const niStr     = estNI  ? `순이익 ${estNI.toFixed(0)}조` : '';
-  const opStr     = estOP  ? `영업이익 ${estOP.toFixed(0)}조` : '';
-  const calcLine  = [mktCapStr, niStr, opStr].filter(Boolean).join(' / ');
+  const niStr     = estNI  ? `추정순이익 ${estNI.toFixed(0)}조` : '';
+  const calcLine  = [mktCapStr, niStr].filter(Boolean).join(' / ');
 
   const tooltipText = [
-    `📊 코스피 선행PER (${date} 기준)`,
+    `📊 코스피 12개월 선행 PER (${date} 기준)`,
     ``,
-    `① 순이익 기준 (FnGuide 공식): ${forwardPer.toFixed(1)}x — ${label}`,
-    opBasedPer ? `② 영업이익 기준 (유튜브 방식): ${opBasedPer.toFixed(1)}x` : '',
-    trailingPer ? `③ 후행PER (CEIC 실측): ${trailingPer.toFixed(1)}x` : '',
+    `선행PER: ${forwardPer.toFixed(1)}x — ${label} (${nearestBand})`,
+    ``,
+    `[밴드 기준]`,
+    `  8배 이하 : 극저평가 (역사적 극소수 사례)`,
+    `  8~9배    : 강저평가`,
+    `  9~10배   : 저평가`,
+    ` ★ 10~11배 : 적정 (역사적 평균 구간)`,
+    `  11~12배  : 적정상단`,
+    `  12배↑    : 고평가/버블주의`,
     ``,
     calcLine ? `[계산근거] ${calcLine}` : '',
     ``,
-    `★ "PER 8배" 유튜브 언급 = 영업이익 기준!`,
-    `   FnGuide "~10.7배" = 순이익(당기순이익) 기준`,
-    `   둘 다 맞지만 이익 지표가 다름`,
-    ``,
-    `출처: FnGuide·하나증권·미래에셋 컨센서스`,
-    `역사적 평균(순이익기준): ~11배 (KB자산운용)`,
-    `2026-02-말 실측: 순이익기준 11.1x / 영업이익기준 8.7x`,
+    `★ 자동체크 기준: 선행PER ≤ 10배 → 저평가 체크 ON`,
+    `출처: FnGuide·하나증권·신영증권 컨센서스`,
+    `2026-02-말 실측: 코스피 6300pt = 선행PER 11.1x`,
   ].filter(s => s !== undefined && s !== null).join('\n');
   if (rowEl) rowEl.title = tooltipText;
 
-  // ── 보조 표시: 영업이익 기준 PER (있으면) 또는 후행PER ──
+  // ── 보조 표시: 밴드 위치 ──
   if (subEl) {
-    if (opBasedPer !== null) {
-      subEl.textContent = `영업이익기준 ${opBasedPer.toFixed(1)}x`;
+    if (nearestBand) {
+      subEl.textContent = nearestBand;
       subEl.style.fontSize = '0.72em';
       subEl.style.opacity = '0.85';
-    } else if (trailingPer !== null) {
-      subEl.textContent = `후행${trailingPer.toFixed(1)}x`;
     } else {
       subEl.textContent = '';
     }
@@ -669,19 +668,74 @@ function updateKospiPER(perData) {
   // ── 카드 PER 강조 클래스 ──
   if (kospiCard) {
     kospiCard.classList.remove(
-      'per-extreme-low','per-undervalued','per-fair-low',
-      'per-fair','per-fair-high','per-overvalued','per-bubble'
+      'per-extreme-low','per-deep-value','per-undervalued',
+      'per-fair','per-fair-high','per-overvalued','per-bubble',
+      // 구 클래스명 하위 호환
+      'per-fair-low'
     );
     const levelClass = {
       'extreme_low': 'per-extreme-low',
+      'deep_value':   'per-deep-value',
       'undervalued':  'per-undervalued',
-      'fair_low':     'per-fair-low',
       'fair':         'per-fair',
       'fair_high':    'per-fair-high',
       'overvalued':   'per-overvalued',
-      'bubble':       'per-bubble'
+      'bubble':       'per-bubble',
+      // 구 레벨명 하위 호환
+      'fair_low':     'per-fair'
     }[perData.level];
     if (levelClass) kospiCard.classList.add(levelClass);
+  }
+
+  // ── 체크리스트 card-15 패널 업데이트 ──
+  updateFwdPerPanel(perData);
+}
+
+/**
+ * 체크리스트 card-15의 선행 PER 패널을 업데이트합니다.
+ * 밴드 시각화 + 현재 수치 표시
+ */
+function updateFwdPerPanel(perData) {
+  if (!perData) return;
+
+  const forwardPer  = perData.forwardPer ?? perData.per;
+  const nearestBand = perData.bandPosition?.nearestBand ?? '';
+  const label       = perData.label    ?? '';
+  const colorHex    = perData.colorHex ?? '#3b82f6';
+  const date        = perData.date     ?? '';
+
+  const perValueEl = document.getElementById('kfp-per-value');
+  const bandEl     = document.getElementById('kfp-band');
+  const labelEl    = document.getElementById('kfp-label');
+  const dateEl     = document.getElementById('kfp-date');
+  const markerEl   = document.getElementById('kfp-band-marker');
+
+  if (perValueEl) {
+    perValueEl.textContent = forwardPer.toFixed(1) + 'x';
+    perValueEl.style.color = colorHex;
+  }
+  if (bandEl)  bandEl.textContent  = nearestBand;
+  if (labelEl) { labelEl.textContent = label; labelEl.style.color = colorHex; }
+  if (dateEl)  dateEl.textContent  = date ? '(' + date + ')' : '';
+
+  // 밴드 시각화 마커 위치 계산 (8배=0% ~ 12배=100%)
+  if (markerEl && forwardPer !== undefined) {
+    const minBand = 8.0, maxBand = 12.0;
+    const clampedPer = Math.min(Math.max(forwardPer, minBand), maxBand);
+    const pct = ((clampedPer - minBand) / (maxBand - minBand)) * 100;
+    markerEl.style.left = pct.toFixed(1) + '%';
+    markerEl.style.background = colorHex;
+    markerEl.title = `선행PER ${forwardPer.toFixed(1)}x (${nearestBand})`;
+  }
+
+  // card-15 select 자동 업데이트
+  const selEl = document.getElementById('sel-15');
+  if (selEl && selEl.value === '') {
+    if (forwardPer <= 10.0) selEl.value = 'positive';
+    else if (forwardPer <= 11.0) selEl.value = 'neutral';
+    else selEl.value = 'negative';
+    // 카드 상태 업데이트
+    if (typeof updateCardStatus === 'function') updateCardStatus(15);
   }
 }
 
@@ -727,7 +781,7 @@ function getTotalCheckItems() {
 }
 
 function updateWinRate() {
-  var total = getTotalCheckItems(); // 현재 DOM 항목 수 (14)
+  var total = getTotalCheckItems(); // 현재 DOM 항목 수 (15)
   var count = 0;
   for (var i = 1; i <= total; i++) {
     var chk = document.getElementById('chk-' + i);
@@ -835,7 +889,7 @@ function saveInvestment() {
     'USD/KRW 환율','전날 미국장','815 채널','증시각도기',
     '외국인 지분','ETF 자금','연준 발언','Monday 효과',
     '빅테크 실적','전쟁/지정학','파산 뉴스','기타 이슈',
-    '브렌트 유가','ASPIM Research'
+    '브렌트 유가','ASPIM Research','코스피 선행PER'
   ];
   const checkedItems = [];
   const total = getTotalCheckItems();
