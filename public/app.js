@@ -5,19 +5,42 @@
 // ===== 상태 관리 =====
 let investmentHistory = JSON.parse(localStorage.getItem('investmentHistory') || '[]');
 let historyChart = null;
-let currentUsdKrw = 1335.0;
+let currentUsdKrw = 1450.0;
 let dramData = [];
+
+// ===== 자동 체크 상태 =====
+// 서버에서 내려온 자동 체크 결과를 저장
+// { 1: { autoOn: bool, reason: '...' }, 2: {...}, 10: {...} }
+let autoCheckState = {};
+// 자동 체크가 적용된 항목 추적 (수동 변경 감지용)
+let autoAppliedItems = new Set();
+
+// ===== 시장 데이터 갱신 스케줄러 =====
+let marketRefreshTimer = null;
+let countdownTimer    = null;
+let nextRefreshTime   = null;
+let lastRefreshTime   = null;
+let isRefreshing      = false;
+
+const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1시간
 
 // ===== 초기화 =====
 document.addEventListener('DOMContentLoaded', () => {
   updateDateTime();
   setInterval(updateDateTime, 1000);
   initTodayInfo();
-  loadMarketData();
+
+  // 시장 + 자동체크 동시 로드
+  loadMarketDataAndAutoCheck();
   loadDramData();
   updateWinRate();
   renderHistoryPage();
-  setInterval(() => { loadMarketData(); }, 60000); // 1분마다 갱신
+
+  // Fed 금리인상 뉴스 로드 (체크12 카드)
+  loadFedNews();
+
+  // 1시간 주기 자동 갱신
+  scheduleNextRefresh();
 });
 
 // ===== 페이지 전환 =====
@@ -36,14 +59,13 @@ function showPage(pageName) {
   }
 }
 
-// ===== 날짜/시간 업데이트 =====
+// ===== 날짜/시간 =====
 function updateDateTime() {
   const now = new Date();
   const opts = {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
-    timeZone: 'Asia/Seoul'
+    hour12: false, timeZone: 'Asia/Seoul'
   };
   const str = new Intl.DateTimeFormat('ko-KR', opts).format(now);
   const el = document.getElementById('current-datetime');
@@ -51,21 +73,18 @@ function updateDateTime() {
 }
 
 function getTodayString() {
-  const now = new Date();
-  return now.toLocaleDateString('ko-KR', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    timeZone: 'Asia/Seoul'
+  return new Date().toLocaleDateString('ko-KR', {
+    year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Seoul'
   }).replace(/\. /g, '-').replace('.', '');
 }
 
 function getTodayISO() {
-  const now = new Date();
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
   return kst.toISOString().slice(0, 10);
 }
 
 function getDayOfWeek() {
-  const days = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
+  const days = ['일요일','월요일','화요일','수요일','목요일','금요일','토요일'];
   return days[new Date().getDay()];
 }
 
@@ -74,133 +93,736 @@ function initTodayInfo() {
   if (todayEl) todayEl.textContent = getTodayString() + ' ' + getDayOfWeek();
 
   const dayLabel = document.getElementById('today-day-label');
-  const dayOfWeek = getDayOfWeek();
+  const dow = getDayOfWeek();
   if (dayLabel) {
-    dayLabel.textContent = '오늘: ' + getTodayString() + ' (' + dayOfWeek + ')';
-    if (dayOfWeek === '월요일') {
+    dayLabel.textContent = '오늘: ' + getTodayString() + ' (' + dow + ')';
+    if (dow === '월요일') {
       dayLabel.style.color = '#f59e0b';
       dayLabel.textContent += ' ⚡ Monday Effect 해당일';
     }
   }
-
   const dexDate = document.getElementById('dex-date');
   if (dexDate) dexDate.textContent = '(기준일: ' + getTodayString() + ')';
 }
 
-// ===== 시장 데이터 로드 =====
-async function loadMarketData() {
+// =====================================================
+//  시장 데이터 + 자동 체크 통합 로드
+// =====================================================
+async function loadMarketDataAndAutoCheck(showLoading = false) {
+  if (isRefreshing) return;
+  isRefreshing = true;
+  if (showLoading) setMarketCardsLoading(true);
+
   try {
-    const res = await fetch('/api/market');
-    if (res.ok) {
-      const data = await res.json();
+    // 시장 데이터와 자동체크 판단을 동시에 요청
+    const forceParam = showLoading ? '?force=true' : '';
+    const [marketRes, autoCheckRes] = await Promise.all([
+      fetch('/api/market' + forceParam),
+      fetch('/api/auto-check' + forceParam)
+    ]);
+
+    if (marketRes.ok) {
+      const data = await marketRes.json();
       updateMarketCards(data);
-      currentUsdKrw = data.usdKrw || 1335.0;
+      currentUsdKrw = data.usdKrw || 1450.0;
       updateDramKrwTable();
+      lastRefreshTime = new Date();
+      updateRefreshStatus(data);
     }
-  } catch(e) {
+
+    if (autoCheckRes.ok) {
+      const autoData = await autoCheckRes.json();
+      applyAutoChecks(autoData);
+    }
+  } catch (e) {
+    console.warn('[Market] 로드 실패:', e);
     setDefaultMarketData();
+    updateRefreshStatusError();
+  } finally {
+    isRefreshing = false;
+    setMarketCardsLoading(false);
   }
 }
 
+// ===== 하위 호환 별칭 =====
+async function loadMarketData(showLoading = false) {
+  return loadMarketDataAndAutoCheck(showLoading);
+}
+
+// =====================================================
+//  자동 체크 적용 로직
+// =====================================================
+/**
+ * 서버 /api/auto-check 응답을 받아 체크박스를 자동으로 ON/OFF
+ * - 이미 수동으로 변경된 항목은 건드리지 않음 (사용자 우선)
+ * - 단, 처음 로드 시 or 명시적 force 갱신 시에는 자동 적용
+ */
+function applyAutoChecks(autoData) {
+  if (!autoData?.checks) return;
+
+  autoCheckState = autoData.checks;
+  const checks = autoData.checks;
+
+  // 각 자동 체크 항목 처리
+  Object.values(checks).forEach(chk => {
+    const id = chk.id;
+    const chkEl = document.getElementById('chk-' + id);
+    const selEl = document.getElementById('sel-' + id);
+    if (!chkEl) return;
+
+    const wasManuallyChanged = autoAppliedItems.has(id) && chkEl.dataset.manualOverride === 'true';
+    if (wasManuallyChanged) return; // 수동 변경 항목 스킵
+
+    // 자동 체크 적용
+    if (chk.autoOn !== chkEl.checked) {
+      chkEl.checked = chk.autoOn;
+      chkEl.dataset.autoSet = 'true';
+
+      // 자동 체크 ON 시 셀렉트박스도 해당 값으로 설정
+      if (selEl && chk.autoOn) {
+        // 각 항목별로 적절한 value 설정
+        if (id === 1) selEl.value = 'positive';  // 환율 하락 = 긍정
+        if (id === 2) selEl.value = 'positive';  // 나스닥 상승 = 긍정
+        if (id === 10) selEl.value = 'negative'; // 전쟁뉴스 급증 = 부정 (위험 신호)
+      } else if (selEl && !chk.autoOn) {
+        if (!selEl.value) selEl.value = '';
+      }
+    }
+
+    autoAppliedItems.add(id);
+
+    // 자동체크 배지 업데이트
+    updateAutoCheckBadge(id, chk);
+  });
+
+  updateWinRate();
+  showAutoCheckToast(autoData.summary);
+}
+
+/**
+ * 자동 체크 결과 배지를 카드에 표시
+ */
+function updateAutoCheckBadge(id, chk) {
+  const card = document.getElementById('card-' + id);
+  if (!card) return;
+
+  // 기존 배지 제거
+  const existing = card.querySelector('.auto-check-badge');
+  if (existing) existing.remove();
+
+  const badge = document.createElement('div');
+  badge.className = 'auto-check-badge';
+
+  if (chk.autoOn) {
+    badge.innerHTML = `<span class="acb-icon acb-on">🤖 자동 ON</span><span class="acb-reason">${escHtml(chk.reason)}</span>`;
+    card.classList.add('auto-checked');
+  } else {
+    badge.innerHTML = `<span class="acb-icon acb-off">🤖 자동분석</span><span class="acb-reason">${escHtml(chk.reason)}</span>`;
+    card.classList.remove('auto-checked');
+  }
+
+  // 체크 카드 하단에 배지 삽입
+  const detail = card.querySelector('.check-detail');
+  if (detail) detail.appendChild(badge);
+
+  // 전쟁 뉴스 항목(10번)에는 헤드라인 표시
+  if (id === 10 && chk.detail?.headlines?.length > 0) {
+    updateWarNewsHeadlines(card, chk.detail);
+  }
+}
+
+/**
+ * 전쟁 뉴스 헤드라인 표시
+ */
+function updateWarNewsHeadlines(card, detail) {
+  const existing = card.querySelector('.war-news-headlines');
+  if (existing) existing.remove();
+
+  const div = document.createElement('div');
+  div.className = 'war-news-headlines';
+  div.innerHTML = `
+    <div class="wnh-header">
+      <i class="fas fa-newspaper"></i>
+      오늘 뉴스 <strong>${detail.todayCount}건</strong> / 어제 ${detail.yesterdayCount}건
+      <span class="wnh-change ${detail.changePct >= 5 ? 'wnh-up' : 'wnh-neutral'}">
+        ${detail.changePct > 0 ? '+' : ''}${detail.changePct}%
+      </span>
+    </div>
+    <ul class="wnh-list">
+      ${(detail.headlines || []).slice(0, 3).map(h =>
+        `<li><span class="wnh-date">${h.date?.slice(5,16) || ''}</span> ${escHtml(h.title)}</li>`
+      ).join('')}
+    </ul>`;
+
+  const detail2 = card.querySelector('.check-detail');
+  if (detail2) detail2.appendChild(div);
+}
+
+/**
+ * 자동 체크 결과 토스트 알림
+ */
+function showAutoCheckToast(summary) {
+  if (!summary) return;
+  const msgs = [];
+  if (summary.usdKrwDown)  msgs.push('💱 USD/KRW 하락 → 체크1 ON');
+  if (summary.nasdaqUp)    msgs.push('📈 NASDAQ 상승 → 체크2 ON');
+  if (summary.warNewsUp)   msgs.push('⚔️ 전쟁뉴스 급증 → 체크10 ON');
+  if (summary.brentUp)     msgs.push('🛢️ 브렌트유 상승 → 체크13 ON');
+
+  if (msgs.length > 0) {
+    showToast('🤖 자동체크: ' + msgs.join(' | '), 5000);
+  }
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// =====================================================
+//  1시간 주기 갱신 스케줄러
+// =====================================================
+function scheduleNextRefresh() {
+  if (marketRefreshTimer) clearTimeout(marketRefreshTimer);
+  if (countdownTimer)     clearInterval(countdownTimer);
+
+  nextRefreshTime = new Date(Date.now() + REFRESH_INTERVAL_MS);
+
+  marketRefreshTimer = setTimeout(async () => {
+    console.log('[Market] 1시간 주기 자동 갱신');
+    await loadMarketDataAndAutoCheck(false);
+    // Fed 뉴스도 매시간 함께 갱신
+    loadFedNews();
+    scheduleNextRefresh();
+  }, REFRESH_INTERVAL_MS);
+
+  countdownTimer = setInterval(updateCountdownDisplay, 1000);
+  updateCountdownDisplay();
+}
+
+function updateCountdownDisplay() {
+  if (!nextRefreshTime) return;
+  const remaining = nextRefreshTime - Date.now();
+  if (remaining <= 0) { updateCountdownEl('갱신 중...'); return; }
+  const m = Math.floor(remaining / 60000);
+  const s = Math.floor((remaining % 60000) / 1000);
+  updateCountdownEl(`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`);
+}
+function updateCountdownEl(text) {
+  const el = document.getElementById('market-countdown');
+  if (el) el.textContent = text;
+}
+
+// ===== 수동 갱신 =====
+async function manualRefreshMarket() {
+  if (isRefreshing) return;
+  // 자동 체크 적용 상태 초기화 (재분석 허용)
+  autoAppliedItems.clear();
+  // 카드의 manualOverride 플래그도 초기화
+  document.querySelectorAll('[data-manual-override]').forEach(el => {
+    el.dataset.manualOverride = 'false';
+  });
+  scheduleNextRefresh();
+  await loadMarketDataAndAutoCheck(true);
+  loadFedNews(true); // 수동 갱신 시 Fed 뉴스도 강제 갱신
+  showToast('📡 시장 데이터, 자동 체크, Fed 뉴스를 실시간으로 갱신했습니다.', 3000);
+}
+
+// ===== 갱신 상태 UI =====
+function updateRefreshStatus(data) {
+  const timeEl   = document.getElementById('market-last-update');
+  const sourceEl = document.getElementById('market-source-badge');
+
+  if (timeEl && lastRefreshTime) {
+    timeEl.textContent = lastRefreshTime.toLocaleTimeString('ko-KR', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false, timeZone: 'Asia/Seoul'
+    }) + ' (KST)';
+  }
+  if (sourceEl) {
+    if (data.source === 'live') {
+      sourceEl.textContent = '● 실시간'; sourceEl.className = 'source-badge live';
+    } else {
+      sourceEl.textContent = '○ 기본값'; sourceEl.className = 'source-badge fallback';
+    }
+  }
+}
+function updateRefreshStatusError() {
+  const el = document.getElementById('market-source-badge');
+  if (el) { el.textContent = '✗ 오류'; el.className = 'source-badge error'; }
+}
+function setMarketCardsLoading(isLoading) {
+  const refreshBtn = document.getElementById('market-refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.disabled = isLoading;
+    refreshBtn.innerHTML = isLoading
+      ? '<i class="fas fa-spinner fa-spin"></i>'
+      : '<i class="fas fa-sync-alt"></i>';
+  }
+  if (isLoading) {
+    ['usd-krw-value','sp500-value','nasdaq-value','kospi-value'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = '갱신중...';
+    });
+  }
+}
+
+// =====================================================
+//  시장 카드 UI 업데이트
+// =====================================================
 function updateMarketCards(data) {
   // USD/KRW
-  const usdVal = document.getElementById('usd-krw-value');
-  const usdChg = document.getElementById('usd-krw-change');
-  if (usdVal) usdVal.textContent = data.usdKrw ? data.usdKrw.toFixed(2) + ' ₩' : '--';
-  if (usdChg && data.usdKrwChange) {
-    const isUp = data.usdKrwChange > 0;
-    usdChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(data.usdKrwChange).toFixed(2);
-    usdChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
+  setCardValue('usd-krw-value', data.usdKrw
+    ? data.usdKrw.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' ₩'
+    : '--');
+  setCardChange('usd-krw-change', data.usdKrwChangePercent ?? 0, '%');
+
+  // USD/KRW 24h 트렌드 배지
+  const trendEl = document.getElementById('usd-krw-24h-trend');
+  if (trendEl && data.usdKrw24hTrend) {
+    const t = data.usdKrw24hTrend;
+    if (t.changePct !== null && t.dataPoints >= 2) {
+      const isDown = t.changePct < 0;
+      trendEl.textContent = `24h: ${isDown ? '▼' : '▲'} ${Math.abs(t.changePct).toFixed(2)}%`;
+      trendEl.className = 'mc-24h-trend ' + (isDown ? 'trend-down' : 'trend-up');
+      trendEl.title = t.note;
+    } else {
+      trendEl.textContent = `24h 누적중 (${t.dataPoints}pts)`;
+      trendEl.className = 'mc-24h-trend trend-neutral';
+    }
   }
+
   // S&P500
-  const spVal = document.getElementById('sp500-value');
-  const spChg = document.getElementById('sp500-change');
-  if (spVal) spVal.textContent = data.sp500 ? data.sp500.toLocaleString() : '--';
-  if (spChg && data.sp500Change !== undefined) {
-    const isUp = data.sp500Change >= 0;
-    spChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(data.sp500Change).toFixed(2) + '%';
-    spChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
-  }
+  setCardValue('sp500-value', data.sp500
+    ? data.sp500.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
+    : '--');
+  setCardChange('sp500-change', data.sp500Change ?? 0, '%');
+
   // NASDAQ
-  const nqVal = document.getElementById('nasdaq-value');
-  const nqChg = document.getElementById('nasdaq-change');
-  if (nqVal) nqVal.textContent = data.nasdaq ? data.nasdaq.toLocaleString() : '--';
-  if (nqChg && data.nasdaqChange !== undefined) {
-    const isUp = data.nasdaqChange >= 0;
-    nqChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(data.nasdaqChange).toFixed(2) + '%';
-    nqChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
-  }
+  setCardValue('nasdaq-value', data.nasdaq
+    ? data.nasdaq.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
+    : '--');
+  setCardChange('nasdaq-change', data.nasdaqChange ?? 0, '%');
+
   // KOSPI
-  const kpVal = document.getElementById('kospi-value');
-  const kpChg = document.getElementById('kospi-change');
-  if (kpVal) kpVal.textContent = data.kospi ? data.kospi.toLocaleString() : '--';
-  if (kpChg && data.kospiChange !== undefined) {
-    const isUp = data.kospiChange >= 0;
-    kpChg.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(data.kospiChange).toFixed(2) + '%';
-    kpChg.className = 'mc-change ' + (isUp ? 'up' : 'down');
+  setCardValue('kospi-value', data.kospi
+    ? data.kospi.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})
+    : '--');
+  setCardChange('kospi-change', data.kospiChange ?? 0, '%');
+
+  // ─── 코스피 PBR 배지 ───
+  updateKospiPBR(data.kospiPBR);
+  // ─── 코스피 PER 배지 ───
+  updateKospiPER(data.kospiPER);
+
+  // D램 환산 환율
+  const dexEl = document.getElementById('dex-usd-krw');
+  if (dexEl && data.usdKrw) {
+    dexEl.textContent = data.usdKrw.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
   }
-  // 환율 업데이트
-  const dexUsdKrw = document.getElementById('dex-usd-krw');
-  if (dexUsdKrw && data.usdKrw) {
-    dexUsdKrw.textContent = data.usdKrw.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // ─── Brent Oil 카드 (상단 마켓 카드) ───
+  if (data.brent) {
+    setCardValue('brent-value', '$' + data.brent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}));
+    setCardChange('brent-change', data.brentChange ?? 0, '%');
+
+    // 상단 카드 24h 트렌드 배지
+    const brentTrendCard = document.getElementById('brent-24h-trend-card');
+    if (brentTrendCard && data.brent24hTrend) {
+      const t = data.brent24hTrend;
+      if (t.changePct !== null && t.dataPoints >= 2) {
+        const isUp = t.changePct > 0;
+        brentTrendCard.textContent = `24h: ${isUp ? '▲' : '▼'} ${Math.abs(t.changePct).toFixed(2)}%`;
+        brentTrendCard.className = 'mc-24h-trend ' + (isUp ? 'trend-up' : 'trend-down');
+        brentTrendCard.title = t.note || '';
+      } else {
+        brentTrendCard.textContent = `24h 누적중 (${t.dataPoints}pts)`;
+        brentTrendCard.className = 'mc-24h-trend trend-neutral';
+      }
+    }
+
+    // ─── Brent Oil 체크리스트 카드 내부 표시 (card-13) ───
+    const brentPriceVal = document.getElementById('brent-price-value');
+    if (brentPriceVal) {
+      brentPriceVal.textContent = '$' + data.brent.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    }
+    const brentPriceChange = document.getElementById('brent-price-change');
+    if (brentPriceChange) {
+      const chg = data.brentChange ?? 0;
+      const isUp = chg > 0;
+      const isZero = chg === 0;
+      brentPriceChange.textContent = isZero ? '변동없음' : (isUp ? '▲ +' : '▼ ') + Math.abs(chg).toFixed(2) + '%';
+      brentPriceChange.className = 'bpd-change ' + (isZero ? 'neutral' : isUp ? 'up' : 'down');
+    }
+    const brentTrend24h = document.getElementById('brent-24h-trend');
+    if (brentTrend24h && data.brent24hTrend) {
+      const t = data.brent24hTrend;
+      if (t.changePct !== null && t.dataPoints >= 2) {
+        const isUp = t.changePct > 0;
+        brentTrend24h.textContent = `24h: ${isUp ? '▲' : '▼'} ${Math.abs(t.changePct).toFixed(2)}%`;
+        brentTrend24h.className = 'bpd-trend ' + (isUp ? 'bpd-up' : 'bpd-down');
+      } else {
+        brentTrend24h.textContent = `24h 데이터 누적 중 (${t.dataPoints}pts)`;
+        brentTrend24h.className = 'bpd-trend bpd-neutral';
+      }
+    }
   }
+
+  // 카드 테두리 색상 (USD/KRW & Brent)
+  const usdCard = document.getElementById('usd-krw-card');
+  if (usdCard) {
+    usdCard.classList.remove('card-up','card-down');
+    if ((data.usdKrwChangePercent ?? 0) > 0) usdCard.classList.add('card-up');
+    else if ((data.usdKrwChangePercent ?? 0) < 0) usdCard.classList.add('card-down');
+  }
+  const brentCard = document.getElementById('brent-card');
+  if (brentCard && data.brent24hTrend) {
+    const t = data.brent24hTrend;
+    brentCard.classList.remove('card-up','card-down');
+    if (t.dataPoints >= 2 && t.changePct !== null) {
+      if (t.changePct > 0) brentCard.classList.add('card-up');
+      else if (t.changePct < 0) brentCard.classList.add('card-down');
+    }
+  }
+}
+
+function setCardValue(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+function setCardChange(id, val, unit = '') {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isZero = val === 0;
+  if (isZero) { el.textContent = '변동없음'; el.className = 'mc-change neutral'; return; }
+  const isUp = val > 0;
+  el.textContent = (isUp ? '▲' : '▼') + ' ' + Math.abs(val).toFixed(2) + unit;
+  el.className = 'mc-change ' + (isUp ? 'up' : 'down');
 }
 
 function setDefaultMarketData() {
-  const defaults = {
-    usdKrw: 1335.00, usdKrwChange: 2.50,
-    sp500: 5923.45, sp500Change: -0.48,
-    nasdaq: 18842.31, nasdaqChange: -0.62,
-    kospi: 2612.40, kospiChange: 0.31
-  };
-  updateMarketCards(defaults);
-  currentUsdKrw = defaults.usdKrw;
+  updateMarketCards({
+    usdKrw: 1450.0, usdKrwChangePercent: 0,
+    sp500: 5923.45, sp500Change: 0,
+    nasdaq: 18842.31, nasdaqChange: 0,
+    kospi: 2612.40, kospiChange: 0,
+    kospiPBR: null, kospiPER: null,
+    source: 'fallback'
+  });
+  currentUsdKrw = 1450.0;
+  updateRefreshStatus({ source: 'fallback' });
 }
 
-// ===== 승률 업데이트 =====
+// =====================================================
+//  코스피 PBR 배지 업데이트
+// =====================================================
+/**
+ * 서버에서 받은 kospiPBR 객체를 KOSPI 카드에 표시합니다.
+ * 수치가 낮을수록 초록색(저평가), 높을수록 빨간색(고평가)
+ */
+function updateKospiPBR(pbrData) {
+  const badgeEl = document.getElementById('kospi-pbr-badge');
+  const levelEl = document.getElementById('kospi-pbr-level');
+  const rowEl   = document.getElementById('kospi-pbr-row');
+  const kospiCard = document.getElementById('kospi-card');
+
+  if (!badgeEl) return;
+
+  if (!pbrData || pbrData.pbr === undefined || pbrData.pbr === null) {
+    badgeEl.textContent = '--';
+    badgeEl.style.background = '#94a3b8';
+    badgeEl.style.color = '#fff';
+    if (levelEl) levelEl.textContent = '';
+    return;
+  }
+
+  const pbr = pbrData.pbr;
+  const label = pbrData.label || '';
+  const colorHex = pbrData.colorHex || '#f59e0b';
+  const note = pbrData.note || '';
+
+  // 배지 업데이트
+  badgeEl.textContent = pbr.toFixed(2) + 'x';
+  badgeEl.style.background = colorHex;
+  badgeEl.style.color = '#fff';
+  if (rowEl) rowEl.title = note;
+
+  // 레벨 텍스트
+  if (levelEl) {
+    levelEl.textContent = label;
+    levelEl.style.color = colorHex;
+  }
+
+  // 카드 PBR 강조 클래스 업데이트
+  if (kospiCard) {
+    kospiCard.classList.remove(
+      'pbr-extreme-low','pbr-undervalued','pbr-fair-low',
+      'pbr-fair','pbr-fair-high','pbr-overvalued','pbr-bubble'
+    );
+    const levelClass = {
+      'extreme_low': 'pbr-extreme-low',
+      'undervalued':  'pbr-undervalued',
+      'fair_low':     'pbr-fair-low',
+      'fair':         'pbr-fair',
+      'fair_high':    'pbr-fair-high',
+      'overvalued':   'pbr-overvalued',
+      'bubble':       'pbr-bubble'
+    }[pbrData.level];
+    if (levelClass) kospiCard.classList.add(levelClass);
+  }
+}
+
+// =====================================================
+//  코스피 PER 배지 업데이트 (매일 갱신)
+// =====================================================
+/**
+ * 서버에서 받은 kospiPER 객체를 KOSPI 카드 및 체크리스트 패널에 표시합니다.
+ * - 메인 배지: 12개월 선행 PER (FnGuide 컨센서스 기준)
+ * - 밴드 기준: 8배 / 9배 / 10배 / 11배 / 12배
+ *
+ * ★ 밴드 기준 (이미지 차트 분석):
+ *   8배 이하  → 극저평가 (역사적 극소수 사례)
+ *   8~9배     → 강저평가
+ *   9~10배    → 저평가
+ *   10~11배   → 적정 (역사적 평균, 현재 2026년 3월)
+ *   11~12배   → 적정상단
+ *   12배 초과 → 고평가/버블주의
+ *
+ * ★ 자동 체크 기준: 선행 PER ≤ 10배 → 저평가 → 체크 ON
+ * 매일 갱신됩니다.
+ */
+function updateKospiPER(perData) {
+  const badgeEl   = document.getElementById('kospi-per-badge');
+  const subEl     = document.getElementById('kospi-per-sub');
+  const levelEl   = document.getElementById('kospi-per-level');
+  const rowEl     = document.getElementById('kospi-per-row');
+  const kospiCard = document.getElementById('kospi-card');
+
+  if (!badgeEl) return;
+
+  if (!perData || perData.per === undefined || perData.per === null) {
+    badgeEl.textContent = '--';
+    badgeEl.style.background = '#94a3b8';
+    badgeEl.style.color = '#fff';
+    if (subEl)   subEl.textContent = '';
+    if (levelEl) levelEl.textContent = '';
+    return;
+  }
+
+  const forwardPer  = perData.forwardPer  ?? perData.per;
+  const label    = perData.label    || '';
+  const colorHex = perData.colorHex || '#3b82f6';
+  const date     = perData.date     || '';
+  const mktCap   = perData.mktCap   ?? null;
+  const estNI    = perData.estimatedNI ?? null;
+  const nearestBand = perData.bandPosition?.nearestBand ?? '';
+
+  // ── 메인 배지: 12개월 선행 PER ──
+  badgeEl.textContent = '선행' + forwardPer.toFixed(1) + 'x';
+  badgeEl.style.background = colorHex;
+  badgeEl.style.color = '#fff';
+
+  // ── 툴팁: 12개월 선행 PER 밴드 기준 설명 ──
+  const mktCapStr = mktCap ? `시총 ${mktCap.toFixed(0)}조` : '';
+  const niStr     = estNI  ? `추정순이익 ${estNI.toFixed(0)}조` : '';
+  const calcLine  = [mktCapStr, niStr].filter(Boolean).join(' / ');
+
+  const tooltipText = [
+    `📊 코스피 12개월 선행 PER (${date} 기준)`,
+    ``,
+    `선행PER: ${forwardPer.toFixed(1)}x — ${label} (${nearestBand})`,
+    ``,
+    `[밴드 기준]`,
+    `  8배 이하 : 극저평가 (역사적 극소수 사례)`,
+    `  8~9배    : 강저평가`,
+    `  9~10배   : 저평가`,
+    ` ★ 10~11배 : 적정 (역사적 평균 구간)`,
+    `  11~12배  : 적정상단`,
+    `  12배↑    : 고평가/버블주의`,
+    ``,
+    calcLine ? `[계산근거] ${calcLine}` : '',
+    ``,
+    `★ 자동체크 기준: 선행PER ≤ 10배 → 저평가 체크 ON`,
+    `출처: FnGuide·하나증권·신영증권 컨센서스`,
+    `2026-02-말 실측: 코스피 6300pt = 선행PER 11.1x`,
+  ].filter(s => s !== undefined && s !== null).join('\n');
+  if (rowEl) rowEl.title = tooltipText;
+
+  // ── 보조 표시: 밴드 위치 ──
+  if (subEl) {
+    if (nearestBand) {
+      subEl.textContent = nearestBand;
+      subEl.style.fontSize = '0.72em';
+      subEl.style.opacity = '0.85';
+    } else {
+      subEl.textContent = '';
+    }
+  }
+
+  // ── 레벨 텍스트 ──
+  if (levelEl) {
+    levelEl.textContent = label;
+    levelEl.style.color = colorHex;
+  }
+
+  // ── 카드 PER 강조 클래스 ──
+  if (kospiCard) {
+    kospiCard.classList.remove(
+      'per-extreme-low','per-deep-value','per-undervalued',
+      'per-fair','per-fair-high','per-overvalued','per-bubble',
+      // 구 클래스명 하위 호환
+      'per-fair-low'
+    );
+    const levelClass = {
+      'extreme_low': 'per-extreme-low',
+      'deep_value':   'per-deep-value',
+      'undervalued':  'per-undervalued',
+      'fair':         'per-fair',
+      'fair_high':    'per-fair-high',
+      'overvalued':   'per-overvalued',
+      'bubble':       'per-bubble',
+      // 구 레벨명 하위 호환
+      'fair_low':     'per-fair'
+    }[perData.level];
+    if (levelClass) kospiCard.classList.add(levelClass);
+  }
+
+  // ── 체크리스트 card-15 패널 업데이트 ──
+  updateFwdPerPanel(perData);
+}
+
+/**
+ * 체크리스트 card-15의 선행 PER 패널을 업데이트합니다.
+ * 밴드 시각화 + 현재 수치 표시
+ */
+function updateFwdPerPanel(perData) {
+  if (!perData) return;
+
+  const forwardPer  = perData.forwardPer ?? perData.per;
+  const nearestBand = perData.bandPosition?.nearestBand ?? '';
+  const label       = perData.label    ?? '';
+  const colorHex    = perData.colorHex ?? '#3b82f6';
+  const date        = perData.date     ?? '';
+
+  const perValueEl = document.getElementById('kfp-per-value');
+  const bandEl     = document.getElementById('kfp-band');
+  const labelEl    = document.getElementById('kfp-label');
+  const dateEl     = document.getElementById('kfp-date');
+  const markerEl   = document.getElementById('kfp-band-marker');
+
+  if (perValueEl) {
+    perValueEl.textContent = forwardPer.toFixed(1) + 'x';
+    perValueEl.style.color = colorHex;
+  }
+  if (bandEl)  bandEl.textContent  = nearestBand;
+  if (labelEl) { labelEl.textContent = label; labelEl.style.color = colorHex; }
+  if (dateEl)  dateEl.textContent  = date ? '(' + date + ')' : '';
+
+  // 밴드 시각화 마커 위치 계산 (8배=0% ~ 12배=100%)
+  if (markerEl && forwardPer !== undefined) {
+    const minBand = 8.0, maxBand = 12.0;
+    const clampedPer = Math.min(Math.max(forwardPer, minBand), maxBand);
+    const pct = ((clampedPer - minBand) / (maxBand - minBand)) * 100;
+    markerEl.style.left = pct.toFixed(1) + '%';
+    markerEl.style.background = colorHex;
+    markerEl.title = `선행PER ${forwardPer.toFixed(1)}x (${nearestBand})`;
+  }
+
+  // card-15 select 자동 업데이트
+  const selEl = document.getElementById('sel-15');
+  if (selEl && selEl.value === '') {
+    if (forwardPer <= 10.0) selEl.value = 'positive';
+    else if (forwardPer <= 11.0) selEl.value = 'neutral';
+    else selEl.value = 'negative';
+    // 카드 상태 업데이트
+    if (typeof updateCardStatus === 'function') updateCardStatus(15);
+  }
+}
+
+// =====================================================
+//  체크박스 수동 변경 감지
+// =====================================================
+// 사용자가 자동체크된 항목을 수동 변경 시 autoOn 상태 무효화
+document.addEventListener('change', e => {
+  const target = e.target;
+  if (!target.matches('input[type="checkbox"]')) return;
+  const idMatch = target.id.match(/^chk-(\d+)$/);
+  if (!idMatch) return;
+  const num = parseInt(idMatch[1]);
+
+  if (target.dataset.autoSet === 'true') {
+    // 이번 change는 자동 적용에 의한 것 — 플래그 해제만
+    target.dataset.autoSet = 'false';
+    return;
+  }
+
+  // 수동 변경 → manualOverride 마크
+  target.dataset.manualOverride = 'true';
+  // 자동체크 배지 업데이트 (회색으로)
+  const card = document.getElementById('card-' + num);
+  if (card) {
+    const badge = card.querySelector('.auto-check-badge');
+    if (badge) badge.classList.add('acb-manual-override');
+    card.classList.remove('auto-checked');
+  }
+});
+
+// =====================================================
+//  승률 업데이트
+// =====================================================
+// 체크리스트 총 항목 수 (DOM에서 동적 계산)
+function getTotalCheckItems() {
+  var max = 0;
+  document.querySelectorAll('[id^="chk-"]').forEach(function(el) {
+    var m = el.id.match(/^chk-(\d+)$/);
+    if (m) max = Math.max(max, parseInt(m[1]));
+  });
+  return max;
+}
+
 function updateWinRate() {
-  let count = 0;
-  for (let i = 1; i <= 12; i++) {
-    const chk = document.getElementById('chk-' + i);
+  var total = getTotalCheckItems(); // 현재 DOM 항목 수 (15)
+  var count = 0;
+  for (var i = 1; i <= total; i++) {
+    var chk = document.getElementById('chk-' + i);
     if (chk && chk.checked) count++;
   }
+  // 항목당 10% 포션, 10개 초과 시 100% 넘을 수 있음
+  var rate = count * 10;
 
-  const rate = count * 10; // 항목당 10%이나 최대 100%로 고정
-  const clampedRate = Math.min(rate, 100);
-
-  // 원형 진행률
-  const circle = document.getElementById('win-rate-display');
+  var circle = document.getElementById('win-rate-display');
   if (circle) {
-    let color;
-    if (clampedRate >= 70) color = '#10b981';
-    else if (clampedRate >= 40) color = '#f59e0b';
-    else color = '#3b82f6';
-    circle.style.background = `conic-gradient(${color} ${clampedRate}%, #334155 ${clampedRate}%)`;
+    var color = rate >= 70 ? '#16a34a' : rate >= 40 ? '#d97706' : '#ea580c';
+    if (rate > 100) color = '#7c3aed';
+    var displayPct = Math.min(rate, 100);
+    circle.style.background = 'conic-gradient(' + color + ' ' + displayPct + '%, #fde8d4 ' + displayPct + '%)';
+    circle.style.boxShadow = rate > 100 ? '0 0 0 4px #7c3aed44' : '';
   }
 
-  const rateNum = document.getElementById('rate-number');
-  if (rateNum) rateNum.textContent = clampedRate;
+  var rateNum = document.getElementById('rate-number');
+  if (rateNum) {
+    rateNum.textContent = rate;
+    rateNum.style.color = rate > 100 ? '#7c3aed' : '';
+    rateNum.style.fontWeight = rate > 100 ? '800' : '';
+  }
 
-  // 체크 수 및 텍스트
-  const checkedCount = document.getElementById('checked-count');
-  if (checkedCount) checkedCount.textContent = count;
+  ['checked-count','checked-count-bottom'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = count;
+  });
+  var rateText = document.getElementById('rate-text');
+  if (rateText) rateText.textContent = rate + '%';
 
-  const rateText = document.getElementById('rate-text');
-  if (rateText) rateText.textContent = clampedRate + '%';
+  var progressBar = document.getElementById('progress-bar');
+  if (progressBar) progressBar.style.width = Math.min(rate, 100) + '%';
 
-  // 진행바
-  const progressBar = document.getElementById('progress-bar');
-  if (progressBar) progressBar.style.width = clampedRate + '%';
+  updateGrade(rate);
 
-  // 등급
-  updateGrade(clampedRate);
-
-  // 카드 강조
-  for (let i = 1; i <= 12; i++) {
-    const card = document.getElementById('card-' + i);
-    const chk = document.getElementById('chk-' + i);
-    if (card && chk) {
-      if (chk.checked) card.classList.add('checked');
+  for (var j = 1; j <= total; j++) {
+    var card = document.getElementById('card-' + j);
+    var chkJ = document.getElementById('chk-' + j);
+    if (card && chkJ) {
+      if (chkJ.checked) card.classList.add('checked');
       else card.classList.remove('checked');
     }
   }
@@ -210,13 +832,13 @@ function updateGrade(rate) {
   const gradeEl = document.getElementById('rate-grade');
   if (!gradeEl) return;
   let icon, text, color;
-  if (rate >= 90)      { icon = '🚀'; text = '최상 - 적극 매수'; color = '#22c55e'; }
-  else if (rate >= 70) { icon = '✅'; text = '양호 - 매수 고려'; color = '#10b981'; }
-  else if (rate >= 50) { icon = '👀'; text = '중립 - 관망 권장'; color = '#f59e0b'; }
-  else if (rate >= 30) { icon = '⚠️'; text = '주의 - 신중 접근'; color = '#ef4444'; }
+  if (rate > 100)      { icon = '💎'; text = '초과달성 - 최적 매수'; color = '#7c3aed'; }
+  else if (rate >= 90) { icon = '🚀'; text = '최상 - 적극 매수'; color = '#15803d'; }
+  else if (rate >= 70) { icon = '✅'; text = '양호 - 매수 고려'; color = '#16a34a'; }
+  else if (rate >= 50) { icon = '👀'; text = '중립 - 관망 권장'; color = '#d97706'; }
+  else if (rate >= 30) { icon = '⚠️'; text = '주의 - 신중 접근'; color = '#ea580c'; }
   else if (rate > 0)   { icon = '🛑'; text = '위험 - 매수 자제'; color = '#dc2626'; }
-  else                 { icon = '🤔'; text = '아직 체크 전';     color = '#64748b'; }
-
+  else                 { icon = '🤔'; text = '아직 체크 전';     color = '#a07850'; }
   gradeEl.innerHTML = `<span class="grade-icon">${icon}</span><span class="grade-text" style="color:${color}">${text}</span>`;
 }
 
@@ -227,26 +849,22 @@ function updateCardStatus(num) {
   const val = sel.value;
   if (val === 'positive') chk.checked = true;
   else if (val === 'negative' || val === '') chk.checked = false;
+  // 수동 변경 마크
+  chk.dataset.manualOverride = 'true';
   updateWinRate();
 }
 
-function toggleChip(el, num) {
-  el.classList.toggle('active');
-}
+function toggleChip(el) { el.classList.toggle('active'); }
 
-// ===== 투자 확정 =====
+// =====================================================
+//  투자 확정
+// =====================================================
 function confirmInvestment() {
-  const checkedEl = document.getElementById('checked-count');
-  const count = parseInt(checkedEl ? checkedEl.textContent : '0');
-  const rate = Math.min(count * 10, 100);
+  const count = parseInt(document.getElementById('checked-count')?.textContent || '0');
+  const rate  = count * 10; // 항목당 10%, 100% 초과 가능
 
-  const modal = document.getElementById('confirm-modal');
-  const modalRate = document.getElementById('modal-rate-display');
-  const modalGrade = document.getElementById('modal-grade-display');
-  const modalDate = document.getElementById('modal-date-display');
-
-  if (modalRate) modalRate.textContent = rate + '%';
-  if (modalDate) modalDate.textContent = getTodayString() + ' (' + getDayOfWeek() + ')';
+  document.getElementById('modal-rate-display').textContent = rate + '%';
+  document.getElementById('modal-date-display').textContent = getTodayString() + ' (' + getDayOfWeek() + ')';
 
   let gradeText, gradeColor;
   if (rate >= 90)      { gradeText = '🚀 최상 - 적극 매수'; gradeColor = '#22c55e'; }
@@ -255,132 +873,88 @@ function confirmInvestment() {
   else if (rate >= 30) { gradeText = '⚠️ 주의 - 신중 접근'; gradeColor = '#ef4444'; }
   else                 { gradeText = '🛑 위험 - 매수 자제'; gradeColor = '#dc2626'; }
 
-  if (modalGrade) {
-    modalGrade.textContent = gradeText;
-    modalGrade.style.color = gradeColor;
-  }
-
-  if (modal) modal.classList.add('open');
+  const modalGrade = document.getElementById('modal-grade-display');
+  if (modalGrade) { modalGrade.textContent = gradeText; modalGrade.style.color = gradeColor; }
+  document.getElementById('confirm-modal')?.classList.add('open');
 }
 
-function closeModal() {
-  const modal = document.getElementById('confirm-modal');
-  if (modal) modal.classList.remove('open');
-}
+function closeModal() { document.getElementById('confirm-modal')?.classList.remove('open'); }
 
 function saveInvestment() {
-  const checkedEl = document.getElementById('checked-count');
-  const count = parseInt(checkedEl ? checkedEl.textContent : '0');
-  const rate = Math.min(count * 10, 100);
+  const count = parseInt(document.getElementById('checked-count')?.textContent || '0');
+  const rate  = count * 10; // 항목당 10%, 100% 초과 가능
   const today = getTodayISO();
 
-  // 체크된 항목들 수집
-  const checkedItems = [];
   const itemNames = [
-    'USD/KRW 환율', '전날 미국장', '815 채널', '증시각도기',
-    '외국인 지분', 'ETF 자금', '연준 발언', 'Monday 효과',
-    '빅테크 실적', '전쟁/지정학', '파산 뉴스', '기타 이슈'
+    'USD/KRW 환율','전날 미국장','815 채널','증시각도기',
+    '외국인 지분','ETF 자금','연준 발언','Monday 효과',
+    '빅테크 실적','전쟁/지정학','파산 뉴스','기타 이슈',
+    '브렌트 유가','ASPIM Research','코스피 선행PER'
   ];
-  for (let i = 1; i <= 12; i++) {
+  const checkedItems = [];
+  const total = getTotalCheckItems();
+  for (let i = 1; i <= total; i++) {
     const chk = document.getElementById('chk-' + i);
-    if (chk && chk.checked) checkedItems.push(itemNames[i-1]);
+    if (chk?.checked) checkedItems.push(itemNames[i-1] || ('항목' + i));
   }
 
-  // 기존 같은 날짜 기록이 있으면 업데이트
   const existingIdx = investmentHistory.findIndex(h => h.date === today);
   const record = {
-    date: today,
-    displayDate: getTodayString(),
-    dayOfWeek: getDayOfWeek(),
-    rate: rate,
-    checkedCount: count,
-    checkedItems: checkedItems,
-    memo: '',
+    date: today, displayDate: getTodayString(), dayOfWeek: getDayOfWeek(),
+    rate, checkedCount: count, checkedItems, memo: '',
     savedAt: new Date().toISOString()
   };
-
-  if (existingIdx >= 0) {
-    record.memo = investmentHistory[existingIdx].memo || '';
-    investmentHistory[existingIdx] = record;
-  } else {
-    investmentHistory.unshift(record);
-  }
+  if (existingIdx >= 0) { record.memo = investmentHistory[existingIdx].memo || ''; investmentHistory[existingIdx] = record; }
+  else investmentHistory.unshift(record);
 
   localStorage.setItem('investmentHistory', JSON.stringify(investmentHistory));
   closeModal();
   showToast('✅ 오늘의 승률 ' + rate + '%가 투자 이력에 저장되었습니다!');
 }
 
-// ===== 투자 이력 렌더링 =====
+// =====================================================
+//  투자 이력 렌더링
+// =====================================================
 function renderHistoryPage() {
   const totalEl = document.getElementById('total-records');
-  const avgEl = document.getElementById('avg-rate');
-  const maxEl = document.getElementById('max-rate');
+  const avgEl   = document.getElementById('avg-rate');
+  const maxEl   = document.getElementById('max-rate');
 
   if (investmentHistory.length > 0) {
     const avg = (investmentHistory.reduce((s, h) => s + h.rate, 0) / investmentHistory.length).toFixed(1);
     const max = Math.max(...investmentHistory.map(h => h.rate));
     if (totalEl) totalEl.textContent = investmentHistory.length;
-    if (avgEl) avgEl.textContent = avg + '%';
-    if (maxEl) maxEl.textContent = max + '%';
+    if (avgEl)   avgEl.textContent   = avg + '%';
+    if (maxEl)   maxEl.textContent   = max + '%';
   } else {
     if (totalEl) totalEl.textContent = '0';
-    if (avgEl) avgEl.textContent = '0%';
-    if (maxEl) maxEl.textContent = '0%';
+    if (avgEl)   avgEl.textContent   = '0%';
+    if (maxEl)   maxEl.textContent   = '0%';
   }
-
   renderHistoryList(investmentHistory);
 }
 
 function renderHistoryList(data) {
   const listEl = document.getElementById('history-list');
   if (!listEl) return;
-
   if (data.length === 0) {
-    listEl.innerHTML = `
-      <div class="empty-history">
-        <i class="fas fa-inbox"></i>
-        <p>아직 확정된 투자 이력이 없습니다.</p>
-        <p class="small">체크리스트에서 '오늘 승률 확정하기'를 눌러 기록을 추가하세요.</p>
-      </div>`;
+    listEl.innerHTML = `<div class="empty-history"><i class="fas fa-inbox"></i><p>아직 확정된 투자 이력이 없습니다.</p><p class="small">체크리스트에서 '오늘 승률 확정하기'를 눌러 기록을 추가하세요.</p></div>`;
     return;
   }
-
-  listEl.innerHTML = data.map((item, idx) => {
+  listEl.innerHTML = data.map(item => {
     const realIdx = investmentHistory.indexOf(item);
     let rateClass = 'rate-low', gradeClass = 'grade-low', gradeText = '위험';
     if (item.rate >= 70) { rateClass = 'rate-high'; gradeClass = 'grade-high'; gradeText = '양호+'; }
     else if (item.rate >= 40) { rateClass = 'rate-mid'; gradeClass = 'grade-mid'; gradeText = '중립'; }
-
-    const checkedStr = item.checkedItems && item.checkedItems.length > 0
-      ? item.checkedItems.map(c => `<span style="font-size:0.7rem;padding:2px 6px;background:rgba(59,130,246,0.1);border-radius:4px;color:#94a3b8;margin:2px">${c}</span>`).join('')
-      : '';
-
-    return `
-      <div class="history-item" id="hi-${realIdx}">
-        <div class="hi-date">
-          ${item.displayDate || item.date}
-          <span>${item.dayOfWeek || ''}</span>
-          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:2px">${checkedStr}</div>
-        </div>
-        <div class="hi-rate">
-          <div class="hi-rate-num ${rateClass}">${item.rate}<span style="font-size:1rem">%</span></div>
-          <div class="hi-rate-label">투자 승률</div>
-          <span class="hi-grade ${gradeClass}">${gradeText}</span>
-        </div>
-        <div class="hi-memo-area">
-          <div class="hi-memo-label"><i class="fas fa-pen"></i> 투자 일기 메모</div>
-          <textarea class="hi-memo-input" id="hi-memo-${realIdx}" placeholder="오늘의 투자 일기를 작성하세요. 시장 분석, 매매 내역, 느낀 점 등을 기록하세요...">${item.memo || ''}</textarea>
-        </div>
-        <div class="hi-actions">
-          <button class="hi-save-btn" onclick="saveMemo(${realIdx})">
-            <i class="fas fa-save"></i> 저장
-          </button>
-          <button class="hi-del-btn" onclick="deleteHistoryItem(${realIdx})">
-            <i class="fas fa-trash"></i> 삭제
-          </button>
-        </div>
-      </div>`;
+    const checkedStr = (item.checkedItems || []).map(c => `<span style="font-size:0.7rem;padding:2px 6px;background:rgba(59,130,246,0.1);border-radius:4px;color:#94a3b8;margin:2px">${c}</span>`).join('');
+    return `<div class="history-item" id="hi-${realIdx}">
+      <div class="hi-date">${item.displayDate||item.date}<span>${item.dayOfWeek||''}</span><div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:2px">${checkedStr}</div></div>
+      <div class="hi-rate"><div class="hi-rate-num ${rateClass}">${item.rate}<span style="font-size:1rem">%</span></div><div class="hi-rate-label">투자 승률</div><span class="hi-grade ${gradeClass}">${gradeText}</span></div>
+      <div class="hi-memo-area"><div class="hi-memo-label"><i class="fas fa-pen"></i> 투자 일기 메모</div><textarea class="hi-memo-input" id="hi-memo-${realIdx}" placeholder="오늘의 투자 일기를 작성하세요...">${item.memo||''}</textarea></div>
+      <div class="hi-actions">
+        <button class="hi-save-btn" onclick="saveMemo(${realIdx})"><i class="fas fa-save"></i> 저장</button>
+        <button class="hi-del-btn" onclick="deleteHistoryItem(${realIdx})"><i class="fas fa-trash"></i> 삭제</button>
+      </div></div>`;
   }).join('');
 }
 
@@ -391,196 +965,97 @@ function saveMemo(idx) {
   localStorage.setItem('investmentHistory', JSON.stringify(investmentHistory));
   showToast('📝 메모가 저장되었습니다.');
 }
-
 function deleteHistoryItem(idx) {
   if (!confirm('이 기록을 삭제하시겠습니까?')) return;
   investmentHistory.splice(idx, 1);
   localStorage.setItem('investmentHistory', JSON.stringify(investmentHistory));
-  renderHistoryPage();
-  setTimeout(renderHistoryChart, 100);
+  renderHistoryPage(); setTimeout(renderHistoryChart, 100);
   showToast('🗑️ 기록이 삭제되었습니다.');
 }
-
 function clearAllHistory() {
-  if (!confirm('전체 투자 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+  if (!confirm('전체 투자 이력을 삭제하시겠습니까? 되돌릴 수 없습니다.')) return;
   investmentHistory = [];
   localStorage.setItem('investmentHistory', JSON.stringify(investmentHistory));
-  renderHistoryPage();
-  setTimeout(renderHistoryChart, 100);
+  renderHistoryPage(); setTimeout(renderHistoryChart, 100);
   showToast('🗑️ 전체 이력이 삭제되었습니다.');
 }
-
 function filterHistory() {
-  const query = document.getElementById('history-search').value.toLowerCase();
-  const filtered = investmentHistory.filter(h =>
-    (h.displayDate || h.date || '').includes(query) ||
-    (h.memo || '').toLowerCase().includes(query) ||
-    (h.dayOfWeek || '').includes(query) ||
-    (h.checkedItems || []).some(c => c.toLowerCase().includes(query))
-  );
-  renderHistoryList(filtered);
+  const q = document.getElementById('history-search').value.toLowerCase();
+  renderHistoryList(investmentHistory.filter(h =>
+    (h.displayDate||h.date||'').includes(q) || (h.memo||'').toLowerCase().includes(q) ||
+    (h.dayOfWeek||'').includes(q) || (h.checkedItems||[]).some(c=>c.toLowerCase().includes(q))
+  ));
 }
 
-// ===== 투자 이력 차트 =====
+// =====================================================
+//  차트
+// =====================================================
 function renderHistoryChart() {
   const canvas = document.getElementById('history-chart');
   if (!canvas) return;
-
-  if (historyChart) {
-    historyChart.destroy();
-    historyChart = null;
-  }
-
-  const sortedHistory = [...investmentHistory].sort((a, b) => a.date > b.date ? 1 : -1);
-  const last30 = sortedHistory.slice(-30);
-
-  if (last30.length === 0) {
-    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-    return;
-  }
-
-  const labels = last30.map(h => h.displayDate || h.date);
-  const rates = last30.map(h => h.rate);
-
+  if (historyChart) { historyChart.destroy(); historyChart = null; }
+  const sorted = [...investmentHistory].sort((a,b)=>a.date>b.date?1:-1).slice(-30);
+  if (sorted.length === 0) return;
   historyChart = new Chart(canvas, {
     type: 'line',
     data: {
-      labels: labels,
-      datasets: [{
-        label: '투자 승률 (%)',
-        data: rates,
-        borderColor: '#3b82f6',
-        backgroundColor: 'rgba(59,130,246,0.08)',
-        borderWidth: 2.5,
-        pointRadius: 5,
-        pointHoverRadius: 8,
-        pointBackgroundColor: rates.map(r => r >= 70 ? '#10b981' : r >= 40 ? '#f59e0b' : '#ef4444'),
-        pointBorderColor: '#1e293b',
-        pointBorderWidth: 2,
-        fill: true,
-        tension: 0.4
-      }]
+      labels: sorted.map(h => h.displayDate||h.date),
+      datasets: [{ label: '투자 승률 (%)', data: sorted.map(h=>h.rate),
+        borderColor: '#d97706', backgroundColor: 'rgba(217,119,6,0.07)', borderWidth: 2.5,
+        pointRadius: 5, pointHoverRadius: 8,
+        pointBackgroundColor: sorted.map(r => r.rate >= 70 ? '#16a34a' : r.rate >= 40 ? '#d97706' : '#dc2626'),
+        pointBorderColor: '#ffffff', pointBorderWidth: 2, fill: true, tension: 0.4 }]
     },
     options: {
       responsive: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#1e293b',
-          titleColor: '#f1f5f9',
-          bodyColor: '#94a3b8',
-          borderColor: '#334155',
-          borderWidth: 1,
-          callbacks: {
-            label: ctx => '승률: ' + ctx.parsed.y + '%'
-          }
-        }
+      plugins: { legend: { display: false },
+        tooltip: { backgroundColor:'#ffffff', titleColor:'#1c1209', bodyColor:'#6b4c30', borderColor:'#f0dece', borderWidth:1.5,
+          callbacks: { label: ctx => '승률: ' + ctx.parsed.y + '%' } }
       },
       scales: {
-        x: {
-          grid: { color: 'rgba(51,65,85,0.5)' },
-          ticks: { color: '#64748b', font: { size: 11 } }
-        },
-        y: {
-          min: 0, max: 120,
-          grid: { color: 'rgba(51,65,85,0.5)' },
-          ticks: {
-            color: '#64748b',
-            font: { size: 11 },
-            callback: v => v + '%'
-          }
-        }
+        x: { grid:{color:'rgba(240,222,206,0.8)'}, ticks:{color:'#a07850',font:{size:11}} },
+        y: { min:0, max:120, grid:{color:'rgba(240,222,206,0.8)'},
+          ticks:{color:'#a07850',font:{size:11},callback:v=>v+'%'} }
       }
     }
   });
 }
 
-// ===== D램 데이터 =====
+// =====================================================
+//  D램 데이터
+// =====================================================
 function loadDramData() {
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' });
-
-  // 시뮬레이션 데이터 (실제 환경에서는 API 연동)
-  const seed = now.getDate() + now.getMonth() * 31;
-  const rand = (base, range) => base + (((seed * 9301 + 49297) % 233280) / 233280 - 0.5) * range;
-
   dramData = [
-    {
-      name: 'DDR5 16GB', spec: 'PC5-38400',
-      spot: rand(3.20, 0.40), prevSpot: 3.12,
-      type: '현물가', id: 'ddr5'
-    },
-    {
-      name: 'DDR5 32GB', spec: 'PC5-51200',
-      spot: rand(6.80, 0.60), prevSpot: 6.65,
-      type: '현물가', id: 'ddr5-32'
-    },
-    {
-      name: 'DDR4 8GB', spec: 'PC4-25600',
-      spot: rand(1.45, 0.20), prevSpot: 1.47,
-      type: '현물가', id: 'ddr4'
-    },
-    {
-      name: 'DDR4 16GB', spec: 'PC4-25600',
-      spot: rand(2.90, 0.30), prevSpot: 2.88,
-      type: '현물가', id: 'ddr4-16'
-    },
-    {
-      name: 'LPDDR5 8GB', spec: 'Mobile',
-      spot: rand(2.80, 0.35), prevSpot: 2.85,
-      type: '현물가', id: 'lpddr5'
-    },
-    {
-      name: 'LPDDR5X 16GB', spec: 'Mobile',
-      spot: rand(5.60, 0.50), prevSpot: 5.52,
-      type: '현물가', id: 'lpddr5x'
-    },
-    {
-      name: 'HBM3 8GB Stack', spec: 'AI/HPC',
-      spot: rand(28.00, 2.0), prevSpot: 26.60,
-      type: '고정가', id: 'hbm3'
-    },
-    {
-      name: 'HBM3E 24GB Stack', spec: 'AI Server',
-      spot: rand(48.00, 4.0), prevSpot: 45.50,
-      type: '고정가', id: 'hbm3e'
-    }
+    { name:'DDR5 16Gb (2Gx8)', spec:'4800/5600 현물', spot:39.50, prevSpot:39.33, type:'현물가', id:'ddr5' },
+    { name:'DDR5 16Gb eTT',    spec:'Entry-Level',    spot:20.60, prevSpot:20.50, type:'현물가', id:'ddr5-32' },
+    { name:'DDR4 16Gb (2Gx8)', spec:'3200 현물',       spot:79.91, prevSpot:79.36, type:'현물가', id:'ddr4' },
+    { name:'DDR4 8Gb (1Gx8)',  spec:'3200 현물',       spot:32.90, prevSpot:32.80, type:'현물가', id:'ddr4-16' },
+    { name:'LPDDR5 16Gb',      spec:'Mobile / 계약가', spot:11.50, prevSpot:10.80, type:'계약가', id:'lpddr5' },
+    { name:'LPDDR5X 16Gb',     spec:'Mobile Premium',  spot:14.20, prevSpot:13.30, type:'계약가', id:'lpddr5x' },
+    { name:'HBM3 8GB Stack',   spec:'AI/HPC 계약가',   spot:235.00,prevSpot:220.00,type:'계약가', id:'hbm3' },
+    { name:'HBM3E 24GB Stack', spec:'AI Server 계약가', spot:420.00,prevSpot:390.00,type:'계약가', id:'hbm3e' }
   ];
-
-  // 카드 업데이트
-  updateDramCards();
-  updateDramKrwTable();
-  updateDramStocks();
-
-  const updStr = '최근 업데이트: ' + dateStr;
+  updateDramCards(); updateDramKrwTable(); updateDramStocks();
+  const updStr = '데이터 기준: 2026.02.27 (DRAMeXchange)';
   ['ddr5-updated','ddr4-updated','lpddr5-updated','hbm3-updated'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = updStr;
+    const el = document.getElementById(id); if (el) el.textContent = updStr;
   });
 }
 
 function updateDramCards() {
   if (dramData.length < 7) return;
-
-  const updates = [
-    { priceId: 'ddr5-price', changeId: 'ddr5-change', idx: 0 },
-    { priceId: 'ddr4-price', changeId: 'ddr4-change', idx: 2 },
-    { priceId: 'lpddr5-price', changeId: 'lpddr5-change', idx: 4 },
-    { priceId: 'hbm3-price', changeId: 'hbm3-change', idx: 6 }
-  ];
-
-  updates.forEach(({ priceId, changeId, idx }) => {
-    const item = dramData[idx];
-    if (!item) return;
-    const pEl = document.getElementById(priceId);
-    const cEl = document.getElementById(changeId);
+  [{ pi:'ddr5-price', ci:'ddr5-change', i:0 },{ pi:'ddr4-price', ci:'ddr4-change', i:2 },
+   { pi:'lpddr5-price', ci:'lpddr5-change', i:4 },{ pi:'hbm3-price', ci:'hbm3-change', i:6 }
+  ].forEach(({ pi, ci, i }) => {
+    const item = dramData[i]; if (!item) return;
+    const pEl = document.getElementById(pi); const cEl = document.getElementById(ci);
     if (pEl) pEl.textContent = '$' + item.spot.toFixed(2);
     if (cEl) {
       const diff = item.spot - item.prevSpot;
-      const pct = ((diff / item.prevSpot) * 100).toFixed(2);
+      const pct = ((diff / item.prevSpot)*100).toFixed(2);
       const isUp = diff >= 0;
       cEl.className = 'dram-change ' + (isUp ? 'up' : 'down');
-      cEl.innerHTML = `<i class="fas fa-arrow-${isUp ? 'up' : 'down'}"></i> ${isUp ? '+' : ''}${pct}%`;
+      cEl.innerHTML = `<i class="fas fa-arrow-${isUp?'up':'down'}"></i> ${isUp?'+':''}${pct}%`;
     }
   });
 }
@@ -588,75 +1063,184 @@ function updateDramCards() {
 function updateDramKrwTable() {
   const tbody = document.getElementById('dram-table-body');
   if (!tbody || dramData.length === 0) return;
-
   const dexEl = document.getElementById('dex-usd-krw');
-  if (dexEl) dexEl.textContent = currentUsdKrw.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
+  if (dexEl) dexEl.textContent = currentUsdKrw.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2});
   tbody.innerHTML = dramData.map(item => {
     const krw = item.spot * currentUsdKrw;
     const diff = item.spot - item.prevSpot;
-    const pct = ((diff / item.prevSpot) * 100).toFixed(2);
+    const pct = ((diff / item.prevSpot)*100).toFixed(2);
     const isUp = diff >= 0;
-    const trendBar = getTrendBar(pct);
-
-    return `
-      <tr>
-        <td><strong style="color:#f1f5f9">${item.name}</strong></td>
-        <td style="color:#64748b">${item.spec}</td>
-        <td class="td-price">$${item.spot.toFixed(3)}</td>
-        <td class="td-krw">₩${Math.round(krw).toLocaleString()}</td>
-        <td class="${isUp ? 'td-up' : 'td-down'}">${isUp ? '▲' : '▼'} ${Math.abs(pct)}%</td>
-        <td>${trendBar}</td>
-      </tr>`;
+    const v = parseFloat(pct); const w = (Math.min(Math.abs(v),10)/10*100).toFixed(0);
+    const trendBar = `<div style="background:${v>=0?'#10b981':'#ef4444'};height:8px;width:${w}%;border-radius:4px;min-width:4px"></div>`;
+    return `<tr>
+      <td><strong style="color:#000;font-weight:800">${item.name}</strong></td>
+      <td style="color:#555">${item.spec}</td>
+      <td class="td-price">$${item.spot.toFixed(3)}</td>
+      <td class="td-krw">₩${Math.round(krw).toLocaleString()}</td>
+      <td class="${isUp?'td-up':'td-down'}">${isUp?'▲':'▼'} ${Math.abs(pct)}%</td>
+      <td>${trendBar}</td></tr>`;
   }).join('');
 }
 
-function getTrendBar(pct) {
-  const v = parseFloat(pct);
-  const absV = Math.min(Math.abs(v), 10);
-  const w = (absV / 10 * 100).toFixed(0);
-  const color = v >= 0 ? '#10b981' : '#ef4444';
-  return `<div style="background:${color};height:8px;width:${w}%;border-radius:4px;min-width:4px"></div>`;
-}
-
 function updateDramStocks() {
-  const seed = new Date().getDate() * 7;
   const stocks = [
-    { priceId: 'stock-samsung', changeId: 'change-samsung',
-      basePrice: 78400, change: (seed % 7) - 3 },
-    { priceId: 'stock-skhynix', changeId: 'change-skhynix',
-      basePrice: 198500, change: (seed % 9) - 4 },
-    { priceId: 'stock-micron', changeId: 'change-micron',
-      basePrice: 124.85, change: ((seed % 11) - 5) * 0.1, isUsd: true },
-    { priceId: 'stock-nvda', changeId: 'change-nvda',
-      basePrice: 892.45, change: ((seed % 13) - 6) * 0.15, isUsd: true }
+    { priceId:'stock-samsung',  changeId:'change-samsung',  price:216500,  prev:218000,  isUsd:false },
+    { priceId:'stock-skhynix',  changeId:'change-skhynix',  price:1061000, prev:1099000, isUsd:false },
+    { priceId:'stock-micron',   changeId:'change-micron',   price:412.37,  prev:415.56,  isUsd:true  },
+    { priceId:'stock-nvda',     changeId:'change-nvda',     price:177.19,  prev:184.89,  isUsd:true  }
   ];
-
   stocks.forEach(s => {
     const pEl = document.getElementById(s.priceId);
     const cEl = document.getElementById(s.changeId);
-    if (pEl) {
-      if (s.isUsd) pEl.textContent = '$' + (s.basePrice + s.change).toFixed(2);
-      else pEl.textContent = '₩' + (s.basePrice + s.change * 100).toLocaleString();
-    }
+    const diff = s.price - s.prev;
+    const pct  = ((diff / s.prev)*100).toFixed(2);
+    const isUp = diff >= 0;
+    if (pEl) pEl.textContent = s.isUsd ? '$' + s.price.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '₩' + s.price.toLocaleString('ko-KR');
     if (cEl) {
-      const pct = (s.change / s.basePrice * 100).toFixed(2);
-      cEl.textContent = (s.change >= 0 ? '▲ +' : '▼ ') + pct + '%';
-      cEl.className = 'dstock-change ' + (s.change >= 0 ? 'up' : 'down');
+      cEl.textContent = (isUp?'▲ +':'▼ ') + Math.abs(pct) + '% (' + (s.isUsd ? '$'+Math.abs(diff).toFixed(2) : '₩'+Math.abs(diff).toLocaleString('ko-KR')) + ')';
+      cEl.className = 'dstock-change ' + (isUp?'up':'down');
     }
   });
 }
 
-// ===== 유틸리티 =====
-function showToast(message) {
+// =====================================================
+//  Fed 금리인상 뉴스 로드 & 렌더링
+// =====================================================
+let fedNewsLoading = false;
+
+async function loadFedNews(force = false) {
+  if (fedNewsLoading) return;
+  fedNewsLoading = true;
+
+  const listEl    = document.getElementById('fed-news-list');
+  const metaEl    = document.getElementById('fed-news-meta');
+  const countEl   = document.getElementById('fed-news-count');
+  const updatedEl = document.getElementById('fed-news-updated');
+  const alertBar  = document.getElementById('fed-alert-bar');
+  const alertBadge= document.getElementById('fed-alert-badge');
+
+  if (listEl) listEl.innerHTML = '<div class="fnp-loading"><i class="fas fa-spinner fa-spin"></i> 금리인상 뉴스 검색 중...</div>';
+
+  try {
+    const url = force ? '/api/fed-news?force=true' : '/api/fed-news';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    renderFedNews(data);
+  } catch (e) {
+    console.warn('[FedNews] 로드 실패:', e);
+    if (listEl) listEl.innerHTML = '<div class="fnp-error"><i class="fas fa-exclamation-triangle"></i> 뉴스 로드 실패. 잠시 후 다시 시도됩니다.</div>';
+  } finally {
+    fedNewsLoading = false;
+  }
+}
+
+/**
+ * Fed 금리 뉴스 데이터를 UI에 렌더링
+ */
+function renderFedNews(data) {
+  const listEl    = document.getElementById('fed-news-list');
+  const countEl   = document.getElementById('fed-news-count');
+  const updatedEl = document.getElementById('fed-news-updated');
+  const alertBar  = document.getElementById('fed-alert-bar');
+  const alertBadge= document.getElementById('fed-alert-badge');
+  const panel     = document.getElementById('fed-news-panel');
+
+  if (!listEl) return;
+
+  // 카운트 & 업데이트 시간
+  if (countEl) countEl.textContent = `72h 이내 ${data.totalCount ?? 0}건 (오늘 ${data.todayCount ?? 0}건)`;
+  if (updatedEl) {
+    const fetchedAt = data.fetchedAt ? new Date(data.fetchedAt).toLocaleTimeString('ko-KR', {
+      hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul'
+    }) : '--';
+    updatedEl.textContent = `갱신: ${fetchedAt} KST`;
+  }
+
+  // 경보 배지
+  if (alertBadge) {
+    if (data.isSurge) {
+      alertBadge.textContent = '🚨 급증';
+      alertBadge.className = 'fnp-badge badge-surge';
+    } else if (data.isAlert) {
+      alertBadge.textContent = '⚠️ 증가';
+      alertBadge.className = 'fnp-badge badge-alert';
+    } else if ((data.todayCount ?? 0) > 0) {
+      alertBadge.textContent = `📰 ${data.todayCount}건`;
+      alertBadge.className = 'fnp-badge badge-normal';
+    } else {
+      alertBadge.textContent = '📭 없음';
+      alertBadge.className = 'fnp-badge badge-none';
+    }
+  }
+
+  // 경보 배너 (급증·증가 시만 표시)
+  if (alertBar) {
+    if (data.isAlert || data.isSurge) {
+      alertBar.style.display = 'block';
+      alertBar.textContent = data.alertMsg || '';
+      alertBar.className = 'fnp-alert-bar ' + (data.isSurge ? 'alert-surge' : 'alert-warning');
+    } else {
+      alertBar.style.display = 'none';
+    }
+  }
+
+  // 패널 border 강조 (급증 시)
+  if (panel) {
+    panel.classList.toggle('fnp-surge', !!data.isSurge);
+    panel.classList.toggle('fnp-alert', !!data.isAlert && !data.isSurge);
+  }
+
+  // 뉴스 목록 렌더링
+  if (!data.articles || data.articles.length === 0) {
+    listEl.innerHTML = `
+      <div class="fnp-empty">
+        <i class="fas fa-search"></i>
+        <span>최근 72시간 내 주요 금리인상 관련 뉴스가 없습니다.</span>
+      </div>`;
+    return;
+  }
+
+  // 신뢰도 tier 이름
+  const tierLabel = { 1:'투자은행', 2:'자산운용', 3:'금융미디어', 4:'경제매체', 5:'금융포털', 9:'기타' };
+  const tierClass = { 1:'tier-bank', 2:'tier-fund', 3:'tier-premium', 4:'tier-major', 5:'tier-fin', 9:'tier-other' };
+
+  listEl.innerHTML = data.articles.map((art, i) => {
+    const cls   = tierClass[art.tier] || 'tier-other';
+    const label = tierLabel[art.tier] || '기타';
+    const ageText = art.ageHours < 24
+      ? `${art.ageHours}시간 전`
+      : `${Math.round(art.ageHours/24)}일 전`;
+    const linkHtml = art.link
+      ? `<a href="${escHtml(art.link)}" target="_blank" rel="noopener" class="fnp-link" title="원문 보기"><i class="fas fa-external-link-alt"></i></a>`
+      : '';
+    return `
+      <div class="fnp-item ${i === 0 ? 'fnp-item-first' : ''}">
+        <div class="fnp-item-top">
+          <span class="fnp-src-badge ${cls}">${escHtml(art.srcType || label)}</span>
+          <span class="fnp-src-name">${escHtml(art.source)}</span>
+          <span class="fnp-age">${ageText}</span>
+          ${linkHtml}
+        </div>
+        <div class="fnp-item-title">${escHtml(art.title)}</div>
+        <div class="fnp-item-date"><i class="fas fa-clock"></i> ${art.date} UTC</div>
+      </div>`;
+  }).join('');
+}
+
+// =====================================================
+//  유틸리티
+// =====================================================
+function showToast(message, duration = 3000) {
   const toast = document.getElementById('toast');
   if (!toast) return;
   toast.textContent = message;
   toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 3000);
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => toast.classList.remove('show'), duration);
 }
 
-// 클릭 외부 모달 닫기
 document.addEventListener('click', e => {
   const modal = document.getElementById('confirm-modal');
   if (modal && e.target === modal) closeModal();

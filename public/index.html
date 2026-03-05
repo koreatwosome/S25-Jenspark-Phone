@@ -31,19 +31,55 @@
 
   <!-- ===== 메인 체크리스트 페이지 ===== -->
   <div id="page-checklist" class="page active">
-    <div class="page-header">
+
+    <!-- 페이지 타이틀 -->
+    <div class="page-header" style="margin-bottom:16px">
       <div class="header-left">
         <h1><i class="fas fa-clipboard-check"></i> 오늘의 투자 승률 체크리스트</h1>
         <p class="header-sub" id="today-date-main"></p>
       </div>
-      <div class="header-right">
-        <div class="win-rate-circle" id="win-rate-display">
-          <div class="circle-inner">
-            <span class="rate-number" id="rate-number">0</span>
-            <span class="rate-percent">%</span>
-            <span class="rate-label">승률</span>
+    </div>
+
+    <!-- ★ 오늘의 투자 승률 배너 (중앙 크게) -->
+    <div class="checklist-win-rate-banner">
+      <div class="banner-title">📊 오늘의 투자 승률</div>
+      <div class="win-rate-circle" id="win-rate-display">
+        <div class="circle-inner">
+          <span class="rate-number" id="rate-number">0</span>
+          <span class="rate-percent">%</span>
+          <span class="rate-label">TODAY</span>
+        </div>
+      </div>
+      <div class="banner-bottom">
+        <div class="banner-progress-wrap">
+          <div class="banner-progress-bar" id="progress-bar" style="width:0%"></div>
+        </div>
+        <div class="banner-info-row">
+          <span class="banner-count">
+            체크 항목: <strong><span id="checked-count">0</span> / 15</strong>
+          </span>
+          <div class="rate-grade" id="rate-grade">
+            <span class="grade-icon">🤔</span>
+            <span class="grade-text">아직 체크 전</span>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 실시간 갱신 상태 바 -->
+    <div class="market-status-bar">
+      <div class="msb-left">
+        <span class="source-badge live" id="market-source-badge">● 실시간</span>
+        <span class="msb-label">최근 갱신:</span>
+        <span class="msb-time" id="market-last-update">--</span>
+        <span class="auto-check-label"><i class="fas fa-robot"></i> 자동체크 활성</span>
+      </div>
+      <div class="msb-right">
+        <span class="msb-label">다음 갱신까지:</span>
+        <span class="msb-countdown" id="market-countdown">--:--</span>
+        <button class="market-refresh-btn" id="market-refresh-btn" onclick="manualRefreshMarket()" title="지금 갱신">
+          <i class="fas fa-sync-alt"></i>
+        </button>
       </div>
     </div>
 
@@ -52,34 +88,60 @@
       <div class="market-card" id="usd-krw-card">
         <div class="mc-icon"><i class="fas fa-dollar-sign"></i></div>
         <div class="mc-content">
-          <div class="mc-title">USD/KRW</div>
+          <div class="mc-title">USD/KRW <span class="mc-auto-tag" title="24시간 하락 시 체크1 자동 ON">🤖체크1</span></div>
           <div class="mc-value" id="usd-krw-value">로딩중...</div>
           <div class="mc-change" id="usd-krw-change"></div>
+          <div class="mc-24h-trend trend-neutral" id="usd-krw-24h-trend">24h 누적중...</div>
         </div>
+        <div class="mc-api-tag">ExchangeRate-API</div>
       </div>
       <div class="market-card">
-        <div class="mc-icon"><i class="fab fa-bitcoin"></i></div>
+        <div class="mc-icon"><i class="fas fa-chart-area"></i></div>
         <div class="mc-content">
-          <div class="mc-title">S&P 500</div>
+          <div class="mc-title">S&amp;P 500</div>
           <div class="mc-value" id="sp500-value">로딩중...</div>
           <div class="mc-change" id="sp500-change"></div>
         </div>
+        <div class="mc-api-tag">Yahoo Finance</div>
       </div>
       <div class="market-card">
         <div class="mc-icon"><i class="fas fa-chart-bar"></i></div>
         <div class="mc-content">
-          <div class="mc-title">NASDAQ</div>
+          <div class="mc-title">NASDAQ <span class="mc-auto-tag" title="전일 대비 상승 시 체크2 자동 ON">🤖체크2</span></div>
           <div class="mc-value" id="nasdaq-value">로딩중...</div>
           <div class="mc-change" id="nasdaq-change"></div>
         </div>
+        <div class="mc-api-tag">Yahoo Finance</div>
       </div>
-      <div class="market-card">
+      <div class="market-card" id="kospi-card">
         <div class="mc-icon"><i class="fas fa-globe-asia"></i></div>
         <div class="mc-content">
           <div class="mc-title">KOSPI</div>
           <div class="mc-value" id="kospi-value">로딩중...</div>
           <div class="mc-change" id="kospi-change"></div>
+          <div class="mc-per-row" id="kospi-per-row">
+            <span class="mc-per-label" title="12개월 선행PER (FnGuide 컨센서스 기준)&#10;※ 후행PER(CEIC실측)은 배지에 별도 표시">선행PER</span>
+            <span class="kospi-per-badge" id="kospi-per-badge">--</span>
+            <span class="kospi-per-sub" id="kospi-per-sub"></span>
+            <span class="kospi-per-level" id="kospi-per-level"></span>
+          </div>
+          <div class="mc-pbr-row" id="kospi-pbr-row">
+            <span class="mc-pbr-label">PBR</span>
+            <span class="kospi-pbr-badge" id="kospi-pbr-badge">--</span>
+            <span class="kospi-pbr-level" id="kospi-pbr-level"></span>
+          </div>
         </div>
+        <div class="mc-api-tag">Yahoo Finance</div>
+      </div>
+      <div class="market-card" id="brent-card">
+        <div class="mc-icon"><i class="fas fa-oil-can"></i></div>
+        <div class="mc-content">
+          <div class="mc-title">Brent Oil <span class="mc-auto-tag" title="24시간 상승 시 체크13 자동 ON">🤖체크13</span></div>
+          <div class="mc-value" id="brent-value">로딩중...</div>
+          <div class="mc-change" id="brent-change"></div>
+          <div class="mc-24h-trend trend-neutral" id="brent-24h-trend-card">24h 누적중...</div>
+        </div>
+        <div class="mc-api-tag">Yahoo Finance</div>
       </div>
     </div>
 
@@ -344,8 +406,8 @@
           <div class="check-header">
             <div class="check-icon icon-danger"><i class="fas fa-fighter-jet"></i></div>
             <div class="check-title-area">
-              <h3>전쟁 / 지정학적 리스크</h3>
-              <p>분쟁 완화 → 안전자산 선호 감소, 주식 유리</p>
+              <h3>전쟁 / 지정학적 리스크 <span class="auto-check-title-tag">🤖 자동</span></h3>
+              <p>미·이란 전쟁 뉴스 5%↑ 시 자동 ON · Google News 실시간 분석</p>
             </div>
             <label class="toggle-switch">
               <input type="checkbox" id="chk-10" onchange="updateWinRate()">
@@ -394,8 +456,8 @@
           <div class="check-header">
             <div class="check-icon icon-slate"><i class="fas fa-newspaper"></i></div>
             <div class="check-title-area">
-              <h3>기타 주요 뉴스 / 이슈</h3>
-              <p>경제지표, 정책 발표 등 기타 시장 영향 요인</p>
+              <h3>기타 주요 뉴스 / 이슈 <span class="auto-check-title-tag" style="background:#e0e7ff;color:#3730a3">🏦 Fed 자동</span></h3>
+              <p>연준 금리인상 가능성 뉴스 · 매시간 자동 리서치 (증권사·자산운용·해외)</p>
             </div>
             <label class="toggle-switch">
               <input type="checkbox" id="chk-12" onchange="updateWinRate()">
@@ -409,7 +471,140 @@
               <option value="neutral">📄 특이사항 없음 → 중립</option>
               <option value="negative">⛔ 부정적 이슈 다수 → 부정</option>
             </select>
+
+            <!-- ★ Fed 금리인상 뉴스 패널 -->
+            <div class="fed-news-panel" id="fed-news-panel">
+              <div class="fnp-header">
+                <span class="fnp-title"><i class="fas fa-university"></i> Fed 금리인상 가능성 리서치</span>
+                <span class="fnp-badge" id="fed-alert-badge"></span>
+                <button class="fnp-refresh-btn" onclick="loadFedNews(true)" title="지금 새로고침">
+                  <i class="fas fa-sync-alt"></i>
+                </button>
+              </div>
+              <div class="fnp-alert-bar" id="fed-alert-bar" style="display:none"></div>
+              <div class="fnp-meta" id="fed-news-meta">
+                <span id="fed-news-count">-- 건</span>
+                <span class="fnp-sep">|</span>
+                <span id="fed-news-updated">로딩중...</span>
+              </div>
+              <div class="fnp-list" id="fed-news-list">
+                <div class="fnp-loading"><i class="fas fa-spinner fa-spin"></i> 금리인상 관련 뉴스 검색 중...</div>
+              </div>
+            </div>
+
             <textarea class="check-memo" id="memo-12" placeholder="기타 뉴스 및 이슈 메모..."></textarea>
+          </div>
+          <div class="check-badge positive-badge">+10%</div>
+        </div>
+
+        <!-- 14. ASPIM Research 유튜브 뷰 -->
+        <div class="check-card" id="card-14">
+          <div class="check-header">
+            <div class="check-icon icon-red"><i class="fab fa-youtube"></i></div>
+            <div class="check-title-area">
+              <h3>ASPIM Research 유튜브 뷰</h3>
+              <p>ASPIM Research 채널 시황 분석 및 매매 의견</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="chk-14" onchange="updateWinRate()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="check-detail">
+            <select class="detail-select" id="sel-14" onchange="updateCardStatus(14)">
+              <option value="">-- 채널 의견 선택 --</option>
+              <option value="positive">👍 긍정적 매수 의견</option>
+              <option value="neutral">🤝 중립 / 관망 의견</option>
+              <option value="negative">👎 부정적 / 매도 의견</option>
+            </select>
+            <div class="channel-link">
+              <a href="https://www.youtube.com/@aspimresearch" target="_blank" class="yt-link">
+                <i class="fab fa-youtube"></i> ASPIM Research 바로가기
+              </a>
+            </div>
+            <textarea class="check-memo" id="memo-14" placeholder="채널 요약 내용을 입력하세요..."></textarea>
+          </div>
+          <div class="check-badge positive-badge">+10%</div>
+        </div>
+
+        <!-- 13. 브렌트 유가 (자동체크) -->
+        <div class="check-card" id="card-13">
+          <div class="check-header">
+            <div class="check-icon icon-amber"><i class="fas fa-oil-can"></i></div>
+            <div class="check-title-area">
+              <h3>브렌트 유가 <span class="auto-check-title-tag">🤖 자동</span></h3>
+              <p>브렌트유 24h 상승 시 자동 ON · Yahoo Finance 실시간</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="chk-13" onchange="updateWinRate()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="check-detail">
+            <select class="detail-select" id="sel-13" onchange="updateCardStatus(13)">
+              <option value="">-- 브렌트유 상태 선택 --</option>
+              <option value="positive">🛢️ 유가 상승 → 에너지·정유 긍정</option>
+              <option value="neutral">➡️ 유가 보합 → 중립</option>
+              <option value="negative">📉 유가 하락 → 에너지 부정</option>
+            </select>
+            <div class="brent-price-display" id="brent-price-display">
+              <span class="bpd-label"><i class="fas fa-oil-can"></i> Brent Crude (BZ=F)</span>
+              <span class="bpd-value" id="brent-price-value">로딩중...</span>
+              <span class="bpd-change" id="brent-price-change"></span>
+              <span class="bpd-trend" id="brent-24h-trend">24h 누적중...</span>
+            </div>
+            <textarea class="check-memo" id="memo-13" placeholder="유가 관련 메모..."></textarea>
+          </div>
+          <div class="check-badge positive-badge">+10%</div>
+        </div>
+
+        <!-- 15. 코스피 12개월 선행 PER 밴드 (자동체크) -->
+        <div class="check-card" id="card-15">
+          <div class="check-header">
+            <div class="check-icon icon-blue"><i class="fas fa-chart-line"></i></div>
+            <div class="check-title-area">
+              <h3>코스피 12개월 선행 PER <span class="auto-check-title-tag">🤖 자동</span></h3>
+              <p>선행PER 10배 이하 시 자동 ON · 밴드: 8배/9배/10배/11배/12배</p>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="chk-15" onchange="updateWinRate()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="check-detail">
+            <select class="detail-select" id="sel-15" onchange="updateCardStatus(15)">
+              <option value="">-- PER 밴드 상태 선택 --</option>
+              <option value="positive">🟢 선행PER 10배 이하 → 저평가 매수 기회</option>
+              <option value="neutral">🔵 선행PER 10~11배 → 적정 구간</option>
+              <option value="negative">🟡 선행PER 11배 이상 → 적정상단·고평가</option>
+            </select>
+            <!-- ★ 실시간 선행 PER 표시 패널 -->
+            <div class="kospi-fwdper-panel" id="kospi-fwdper-panel">
+              <div class="kfp-header">
+                <span class="kfp-title"><i class="fas fa-chart-bar"></i> 코스피 12개월 선행 PER</span>
+                <span class="kfp-date" id="kfp-date"></span>
+              </div>
+              <div class="kfp-per-row">
+                <span class="kfp-per-value" id="kfp-per-value">--</span>
+                <span class="kfp-band" id="kfp-band"></span>
+                <span class="kfp-label" id="kfp-label"></span>
+              </div>
+              <div class="kfp-band-visual" id="kfp-band-visual">
+                <!-- 밴드 시각화: 8배~12배 -->
+                <div class="kfp-band-track">
+                  <div class="kfp-band-marker" id="kfp-band-marker" style="left:0%"></div>
+                  <div class="kfp-band-tick" style="left:0%"><span>8배</span></div>
+                  <div class="kfp-band-tick" style="left:25%"><span>9배</span></div>
+                  <div class="kfp-band-tick" style="left:50%"><span>10배</span></div>
+                  <div class="kfp-band-tick" style="left:75%"><span>11배</span></div>
+                  <div class="kfp-band-tick" style="left:100%"><span>12배</span></div>
+                </div>
+              </div>
+              <div class="kfp-note">
+                <span class="kfp-note-text">★ 8배 이하 극소수 | 10배 = 역사적 평균 | 12배↑ = 고평가</span>
+              </div>
+            </div>
+            <textarea class="check-memo" id="memo-15" placeholder="선행 PER 관련 메모..."></textarea>
           </div>
           <div class="check-badge positive-badge">+10%</div>
         </div>
@@ -417,26 +612,18 @@
       </div><!-- end checklist-grid -->
 
       <!-- 승률 요약 바 -->
+      <!-- 하단 확정 버튼 바 -->
       <div class="rate-summary-bar">
-        <div class="rsb-left">
+        <div class="rsb-right">
           <div class="rsb-items">
             <span class="rsb-item">
               <i class="fas fa-check-square"></i>
-              <span id="checked-count">0</span> / 12 항목 체크
+              <span id="checked-count-bottom">0</span> / 15 항목 체크됨
             </span>
             <span class="rsb-item">
               <i class="fas fa-percentage"></i>
-              오늘의 투자 승률: <strong id="rate-text">0%</strong>
+              오늘의 승률: <strong id="rate-text">0%</strong>
             </span>
-          </div>
-          <div class="progress-bar-wrap">
-            <div class="progress-bar" id="progress-bar" style="width:0%"></div>
-          </div>
-        </div>
-        <div class="rsb-right">
-          <div class="rate-grade" id="rate-grade">
-            <span class="grade-icon">🤔</span>
-            <span class="grade-text">아직 체크 전</span>
           </div>
           <button class="confirm-btn" onclick="confirmInvestment()">
             <i class="fas fa-stamp"></i>
@@ -521,52 +708,52 @@
       <div class="dram-card highlight">
         <div class="dram-card-header">
           <i class="fas fa-memory"></i>
-          <span>DDR5 16GB (PC5-38400)</span>
+          <span>DDR5 16Gb 4800/5600</span>
         </div>
-        <div class="dram-price" id="ddr5-price">$3.20</div>
+        <div class="dram-price" id="ddr5-price">$39.50</div>
         <div class="dram-change up" id="ddr5-change">
-          <i class="fas fa-arrow-up"></i> +2.5%
+          <i class="fas fa-arrow-up"></i> +0.43%
         </div>
-        <div class="dram-label">현물가 (Spot Price)</div>
+        <div class="dram-label">현물가 (Spot Price) · 출처: DRAMeXchange</div>
         <div class="dram-updated" id="ddr5-updated">최근 업데이트: --</div>
       </div>
 
       <div class="dram-card">
         <div class="dram-card-header">
           <i class="fas fa-memory"></i>
-          <span>DDR4 8GB (PC4-25600)</span>
+          <span>DDR4 16Gb 3200</span>
         </div>
-        <div class="dram-price" id="ddr4-price">$1.45</div>
-        <div class="dram-change" id="ddr4-change">
-          <i class="fas fa-minus"></i> 0.0%
+        <div class="dram-price" id="ddr4-price">$79.91</div>
+        <div class="dram-change up" id="ddr4-change">
+          <i class="fas fa-arrow-up"></i> +0.69%
         </div>
-        <div class="dram-label">현물가 (Spot Price)</div>
+        <div class="dram-label">현물가 (Spot Price) · 출처: DRAMeXchange</div>
         <div class="dram-updated" id="ddr4-updated">최근 업데이트: --</div>
       </div>
 
       <div class="dram-card">
         <div class="dram-card-header">
           <i class="fas fa-microchip"></i>
-          <span>LPDDR5 8GB</span>
+          <span>LPDDR5 16Gb</span>
         </div>
-        <div class="dram-price" id="lpddr5-price">$2.80</div>
-        <div class="dram-change down" id="lpddr5-change">
-          <i class="fas fa-arrow-down"></i> -1.2%
+        <div class="dram-price" id="lpddr5-price">$11.50</div>
+        <div class="dram-change up" id="lpddr5-change">
+          <i class="fas fa-arrow-up"></i> +6.48%
         </div>
-        <div class="dram-label">현물가 (Spot Price)</div>
+        <div class="dram-label">계약가 (Contract) · 출처: TrendForce</div>
         <div class="dram-updated" id="lpddr5-updated">최근 업데이트: --</div>
       </div>
 
       <div class="dram-card">
         <div class="dram-card-header">
           <i class="fas fa-server"></i>
-          <span>HBM3 (AI용)</span>
+          <span>HBM3 8GB Stack (AI용)</span>
         </div>
-        <div class="dram-price" id="hbm3-price">$28.00</div>
+        <div class="dram-price" id="hbm3-price">$235.00</div>
         <div class="dram-change up" id="hbm3-change">
-          <i class="fas fa-arrow-up"></i> +5.2%
+          <i class="fas fa-arrow-up"></i> +6.82%
         </div>
-        <div class="dram-label">고정가 (Contract Price)</div>
+        <div class="dram-label">계약가 (Contract) · 출처: TrendForce</div>
         <div class="dram-updated" id="hbm3-updated">최근 업데이트: --</div>
       </div>
     </div>
@@ -580,49 +767,56 @@
           <strong id="dex-usd-krw">1,335.00</strong> 원/달러
           <span class="dex-date" id="dex-date"></span>
         </div>
-        <table class="dex-table">
-          <thead>
-            <tr>
-              <th>제품명</th>
-              <th>용량</th>
-              <th>USD 가격</th>
-              <th>KRW 환산</th>
-              <th>전일 대비</th>
-              <th>트렌드</th>
-            </tr>
-          </thead>
-          <tbody id="dram-table-body">
-          </tbody>
-        </table>
+        <div class="dex-table-wrap">
+          <table class="dex-table">
+            <thead>
+              <tr>
+                <th>제품명</th>
+                <th>용량 / 스펙</th>
+                <th>USD 가격</th>
+                <th>KRW 환산</th>
+                <th>전일 대비</th>
+                <th>트렌드</th>
+              </tr>
+            </thead>
+            <tbody id="dram-table-body">
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
     <!-- D램 관련 기업 주가 -->
     <div class="dram-stocks-section">
       <div class="dstock-card">
-        <h3><i class="fas fa-chart-bar"></i> D램 관련 주요 기업</h3>
+        <h3>
+          <i class="fas fa-chart-bar"></i> D램 관련 주요 기업
+          <span style="font-size:0.72rem;font-weight:400;color:#64748b;margin-left:12px;">
+            ※ 2026.02.27(금) 종가 기준 &nbsp;|&nbsp; 국내주: KRX &nbsp;|&nbsp; 미국주: NASDAQ (EST 16:00)
+          </span>
+        </h3>
         <div class="dstock-grid" id="dstock-grid">
           <div class="dstock-item">
             <div class="dstock-name">삼성전자</div>
-            <div class="dstock-code">005930</div>
+            <div class="dstock-code">KRX · 005930</div>
             <div class="dstock-price" id="stock-samsung">로딩중...</div>
             <div class="dstock-change" id="change-samsung"></div>
           </div>
           <div class="dstock-item">
             <div class="dstock-name">SK하이닉스</div>
-            <div class="dstock-code">000660</div>
+            <div class="dstock-code">KRX · 000660</div>
             <div class="dstock-price" id="stock-skhynix">로딩중...</div>
             <div class="dstock-change" id="change-skhynix"></div>
           </div>
           <div class="dstock-item">
             <div class="dstock-name">마이크론 (MU)</div>
-            <div class="dstock-code">NASDAQ</div>
+            <div class="dstock-code">NASDAQ · MU</div>
             <div class="dstock-price" id="stock-micron">로딩중...</div>
             <div class="dstock-change" id="change-micron"></div>
           </div>
           <div class="dstock-item">
             <div class="dstock-name">엔비디아 (NVDA)</div>
-            <div class="dstock-code">NASDAQ</div>
+            <div class="dstock-code">NASDAQ · NVDA</div>
             <div class="dstock-price" id="stock-nvda">로딩중...</div>
             <div class="dstock-change" id="change-nvda"></div>
           </div>
